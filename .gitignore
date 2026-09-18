@@ -1,0 +1,30 @@
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+
+# 环境变量与密钥
+.env
+.env.*
+!.env.example
+
+# 本地数据库与缓存
+*.db
+*.sqlite
+*.sqlite3
+backend/data/
+
+# 编辑器与系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
