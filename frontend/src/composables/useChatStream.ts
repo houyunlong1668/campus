@@ -14,13 +14,14 @@ export interface ChatMessage {
   error: string | null
 }
 
-export function useChatStream() {
-  const messages = ref<ChatMessage[]>([])
-  const streaming = ref(false)
-  const pendingCard = ref<NavCard | null>(null)
-  const sessionId = crypto.randomUUID()
-  let controller: AbortController | null = null
+// 模块级状态：悬浮球收起会卸载 ChatBox，会话历史与在途流必须活过它
+const messages = ref<ChatMessage[]>([])
+const streaming = ref(false)
+const pendingCard = ref<NavCard | null>(null)
+const sessionId = crypto.randomUUID()
+let controller: AbortController | null = null
 
+export function useChatStream() {
   async function send(text: string) {
     if (streaming.value) return
     messages.value.push({ id: crypto.randomUUID(), role: 'user', text, toolCall: null, navCard: null, error: null })

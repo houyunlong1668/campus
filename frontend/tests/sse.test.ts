@@ -27,6 +27,13 @@ describe('createSSEParser', () => {
     expect(frames.map((f) => f.event)).toEqual(['token', 'nav_card'])
   })
 
+  it('CRLF 帧分隔同样识别', () => {
+    const p = createSSEParser()
+    expect(p.feed(enc('event: token\r\ndata: {"text":"a"}\r\n\r\n'))).toEqual([
+      { event: 'token', data: '{"text":"a"}' },
+    ])
+  })
+
   it('UTF-8 多字节字符被 chunk 切断后正确重组', () => {
     const p = createSSEParser()
     const bytes = enc('data: {"text":"课表"}\n\n')

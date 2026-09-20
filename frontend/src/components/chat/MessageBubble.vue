@@ -1,19 +1,11 @@
 <script setup lang="ts">
-import MarkdownIt from 'markdown-it'
-import hljs from 'highlight.js'
 import { computed } from 'vue'
+import { md } from '../../lib/markdown'
 import type { ChatMessage } from '../../composables/useChatStream'
 import NavigationCard from './NavigationCard.vue'
 
 const props = defineProps<{ message: ChatMessage }>()
 
-const md = new MarkdownIt({
-  html: false, // 硬约束：模型输出直插 DOM 是 XSS 入口
-  highlight(code, lang) {
-    const language = hljs.getLanguage(lang) ? lang : 'plaintext'
-    return `<pre><code class="hljs">${hljs.highlight(code, { language }).value}</code></pre>`
-  },
-})
 const rendered = computed(() => md.render(props.message.text))
 </script>
 

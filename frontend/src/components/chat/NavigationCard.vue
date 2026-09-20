@@ -11,7 +11,16 @@ function go() {
 </script>
 
 <template>
-  <el-card class="nav-card" shadow="hover" @click="go">
+  <el-card
+    class="nav-card"
+    shadow="hover"
+    role="button"
+    tabindex="0"
+    :aria-label="`跳转到 ${card.title}`"
+    @click="go"
+    @keyup.enter="go"
+    @keyup.space.prevent="go"
+  >
     <div class="title">{{ card.title }}</div>
     <div class="reason">{{ card.reason }}</div>
     <div class="path">{{ card.path }}</div>

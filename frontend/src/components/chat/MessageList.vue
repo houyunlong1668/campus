@@ -1,17 +1,21 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { ChatMessage } from '../../composables/useChatStream'
 import MessageBubble from './MessageBubble.vue'
 
-const props = defineProps<{ messages: ChatMessage[]; streaming: boolean }>()
+const props = defineProps<{ messages: ChatMessage[] }>()
 const bottom = ref<HTMLElement | null>(null)
-watch(
-  () => props.messages.at(-1)?.text,
-  async () => {
-    await nextTick()
-    bottom.value?.scrollIntoView({ behavior: 'smooth' })
-  },
-)
+
+// 只跟 text 长度会漏掉状态条/卡片/错误到达时的滚动
+const tail = computed(() => {
+  const last = props.messages.at(-1)
+  return `${props.messages.length}|${last?.text.length ?? 0}|${last?.toolCall ? 1 : 0}|${last?.navCard ? 1 : 0}|${last?.error ? 1 : 0}`
+})
+
+watch(tail, async () => {
+  await nextTick()
+  bottom.value?.scrollIntoView({ behavior: 'smooth' })
+})
 </script>
 
 <template>
