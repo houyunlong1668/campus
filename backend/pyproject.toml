@@ -9,6 +9,8 @@ dependencies = [
     "pydantic-settings>=2.3",
     "mcp>=2.2,<3",
     "langgraph>=0.3",
+    "openai>=1.50",
+    "aiosqlite>=0.20",
 ]
 
 [dependency-groups]

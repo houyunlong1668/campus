@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from langgraph.errors import GraphRecursionError
 
 from ..agent.graph import build_graph
-from ..llm.fake import FakeProvider
+from ..db.repository import ToolCallRecord
 from ..schemas import ChatRequest
 
 logger = logging.getLogger("campus-agent.chat")
@@ -20,10 +20,26 @@ def sse_frame(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+def build_record(state: dict[str, Any]) -> ToolCallRecord | None:
+    """tool_results 的值里没有工具名，tool_name 只能取 state 上那个。"""
+    first = next(iter(state.get("tool_results", {}).values()), None)
+    tool_name = state.get("tool_name")
+    if not first or not tool_name:
+        return None
+    return ToolCallRecord(
+        tool_name=tool_name,
+        args_json=json.dumps(state.get("tool_args", {}), ensure_ascii=False),
+        ok=bool(first.get("ok")),
+        error=first.get("error"),
+        latency_ms=int(first.get("latency_ms") or 0),
+    )
+
+
 @router.post("/chat")
 async def chat(request: ChatRequest, req: Request):
     registry = req.app.state.registry
-    provider = FakeProvider()  # M6 换成 config 选择器
+    provider = req.app.state.provider
+    repository = req.app.state.repository
     graph = build_graph(provider, registry)
     request_id = uuid.uuid4().hex[:12]
     message_id = uuid.uuid4().hex[:12]
@@ -53,6 +69,17 @@ async def chat(request: ChatRequest, req: Request):
                     yield sse_frame(event, data)
                 else:
                     final_state = payload  # values 模式最后一条即合并后的最终 state
+            persisted = final_state or {}
+            try:
+                await repository.record_exchange(
+                    session_id=request.session_id,
+                    user_text=request.message,
+                    assistant_text=persisted.get("answer", ""),
+                    tool_call=build_record(persisted),
+                    steps=persisted.get("steps", []),
+                )
+            except Exception:
+                logger.exception("request_id=%s 落库失败（不中断对话流）", request_id)
             yield sse_frame("done", {
                 "message_id": message_id,
                 "steps": (final_state or {}).get("steps", []),
