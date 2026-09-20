@@ -1,6 +1,13 @@
 export interface ChatRequest {
   message: string
-  session_id: string
+}
+
+export interface StudentInfo {
+  student_id: string
+  name: string
+  major: string
+  class_name: string
+  college: string
 }
 
 export interface ToolCallEvent {

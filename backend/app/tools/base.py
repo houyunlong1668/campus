@@ -1,7 +1,7 @@
 import time
 from typing import Any, Awaitable, Callable, Protocol
 
-from pydantic import BaseModel, create_model
+from pydantic import BaseModel, ConfigDict, create_model
 
 
 class ToolSpec(BaseModel):
@@ -53,7 +53,9 @@ def _args_model(schema: dict[str, Any]):
             py_type = py_type | None
         default = ... if name in required else None
         fields[name] = (py_type, default)
-    return create_model("ToolArgs", **fields)
+    # extra="forbid"：schema 未声明的键一律拒绝。S3 要把会话里的 student_id
+    # 注入工具参数，靠的就是"模型自己塞的同名字段先被拒掉"这道底线。
+    return create_model("ToolArgs", __config__=ConfigDict(extra="forbid"), **fields)
 
 
 def validate_args(schema: dict[str, Any], args: dict[str, Any]) -> tuple[bool, str | None]:

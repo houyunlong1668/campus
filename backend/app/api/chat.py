@@ -4,11 +4,13 @@ import time
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from langgraph.errors import GraphRecursionError
 
 from ..agent.graph import build_graph
+from ..auth.deps import require_student
+from ..auth.students import Student
 from ..db.repository import ToolCallRecord
 from ..schemas import ChatRequest
 
@@ -36,7 +38,8 @@ def build_record(state: dict[str, Any]) -> ToolCallRecord | None:
 
 
 @router.post("/chat")
-async def chat(request: ChatRequest, req: Request):
+async def chat(request: ChatRequest, req: Request,
+               student: Student = Depends(require_student)):
     registry = req.app.state.registry
     provider = req.app.state.provider
     repository = req.app.state.repository
@@ -47,7 +50,8 @@ async def chat(request: ChatRequest, req: Request):
 
     initial_state = {
         "user_input": request.message,
-        "session_id": request.session_id,
+        # 图内的"会话"即学号：节点不需要知道身份从哪来
+        "session_id": student.student_id,
         "intent": None, "tool_name": None, "tool_args": {},
         "tool_results": {}, "answer": "", "nav_card": None,
         "steps": [], "error": None,
@@ -57,17 +61,18 @@ async def chat(request: ChatRequest, req: Request):
         first_token_at: float | None = None
         final_state: dict | None = None
         persisted = False
+        conversation_id: int | None = None
 
         async def persist():
             # 异常轮次同样要落库——失败样本才是行为测试最需要看的
-            nonlocal persisted
+            nonlocal persisted, conversation_id
             if persisted:
                 return
             persisted = True
             state = final_state or {}
             try:
-                await repository.record_exchange(
-                    session_id=request.session_id,
+                conversation_id = await repository.record_exchange(
+                    student_id=student.student_id,
                     user_text=request.message,
                     assistant_text=state.get("answer", ""),
                     tool_call=build_record(state),
@@ -92,8 +97,8 @@ async def chat(request: ChatRequest, req: Request):
             await persist()
             yield sse_frame("done", {
                 "message_id": message_id,
+                "conversation_id": conversation_id,
                 "steps": (final_state or {}).get("steps", []),
-                "session_id": request.session_id,
             })
         except GraphRecursionError:
             logger.error("request_id=%s 触发 recursion_limit", request_id)

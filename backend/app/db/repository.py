@@ -14,25 +14,28 @@ class ToolCallRecord(BaseModel):
 
 
 class ConversationRepository(Protocol):
-    async def record_exchange(self, *, session_id: str, user_text: str,
+    async def record_exchange(self, *, student_id: str, user_text: str,
                               assistant_text: str,
                               tool_call: ToolCallRecord | None,
-                              steps: list[str]) -> None: ...
+                              steps: list[str]) -> int | None: ...
 
 
 class SqliteConversationRepository:
     def __init__(self, path: Path):
         self._path = path
 
-    async def record_exchange(self, *, session_id: str, user_text: str,
+    async def record_exchange(self, *, student_id: str, user_text: str,
                               assistant_text: str,
                               tool_call: ToolCallRecord | None,
-                              steps: list[str]) -> None:
+                              steps: list[str]) -> int | None:
         import aiosqlite
 
         async with aiosqlite.connect(self._path) as db:
+            # session_id 列暂与 student_id 同值写入：老库里它是 NOT NULL 且
+            # SQLite 无法就地放宽约束，S2 的 MySQL schema 不再保留这一列。
             cur = await db.execute(
-                "INSERT INTO conversations(session_id) VALUES (?)", (session_id,))
+                "INSERT INTO conversations(student_id, session_id) VALUES (?,?)",
+                (student_id, student_id))
             conv_id = cur.lastrowid
             await db.executemany(
                 "INSERT INTO messages(conversation_id, role, content) VALUES (?,?,?)",
@@ -48,6 +51,7 @@ class SqliteConversationRepository:
                      json.dumps(steps, ensure_ascii=False)),
                 )
             await db.commit()
+            return conv_id
 
 
 def build_repository(path: Path) -> ConversationRepository:

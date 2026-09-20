@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import TimetableGrid from '../components/TimetableGrid.vue'
-import { courses, periods, student, weekdays } from '../data/seed'
+import { courses, DOMAIN_LABELS, periods, student, weekdays, type Domain } from '../data/seed'
 
 const activeWeek = ref(student.week)
 const weeks = Array.from({ length: student.totalWeeks }, (_, i) => i + 1)
@@ -12,6 +12,11 @@ function inWeek(range: string, week: number): boolean {
 }
 
 const shown = computed(() => courses.filter((c) => inWeek(c.weeks, activeWeek.value)))
+
+const visibleDomains = computed(() =>
+  (Object.keys(DOMAIN_LABELS) as Domain[]).filter((d) => shown.value.some((c) => c.domain === d)),
+)
+const countOf = (d: Domain) => shown.value.filter((c) => c.domain === d).length
 </script>
 
 <template>
@@ -42,6 +47,15 @@ const shown = computed(() => courses.filter((c) => inWeek(c.weeks, activeWeek.va
     </div>
 
     <TimetableGrid class="grid-box" :days="[1, 2, 3, 4, 5]" :items="shown" />
+
+    <!-- 图例只列本周真正出现的学科，不摆满六色当装饰 -->
+    <ul class="legend">
+      <li v-for="d in visibleDomains" :key="d" class="legend-item">
+        <span class="swatch" :class="'d-' + d" />
+        {{ DOMAIN_LABELS[d] }}
+        <span class="legend-count num">{{ countOf(d) }}</span>
+      </li>
+    </ul>
 
     <p class="foot-note">
       {{ weekdays[0] }}–{{ weekdays[4] }} 排课，周末无课。表格为仿真数据；要改选课或调课，请到教务办办理。
@@ -132,5 +146,36 @@ const shown = computed(() => courses.filter((c) => inWeek(c.weeks, activeWeek.va
 .foot-note {
   font-size: 12.5px;
   color: var(--faint);
+}
+
+.legend {
+  list-style: none;
+  margin: -6px 0 0;
+  padding: 0;
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: var(--faint);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--c-soft);
+  border: 1px solid var(--c);
+  border-left: 3px solid var(--c);
+}
+
+.legend-count {
+  font-size: 12px;
+  color: var(--ink-2);
 }
 </style>

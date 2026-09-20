@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { createSSEParser } from '../lib/sse'
+import { useAuth } from './useAuth'
 import type {
   ChatRequest, DoneEvent, ErrorEvent, NavCardEvent, TokenEvent, ToolCallEvent,
 } from '../types'
@@ -18,7 +19,6 @@ export interface ChatMessage {
 const messages = ref<ChatMessage[]>([])
 const streaming = ref(false)
 const pendingCard = ref<NavCard | null>(null)
-const sessionId = crypto.randomUUID()
 let controller: AbortController | null = null
 
 export function useChatStream() {
@@ -34,14 +34,25 @@ export function useChatStream() {
     streaming.value = true
     controller = new AbortController()
 
-    const body: ChatRequest = { message: text, session_id: sessionId }
+    const body: ChatRequest = { message: text }
     try {
       const resp = await fetch('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        credentials: 'include',
         signal: controller.signal,
       })
+      if (resp.status === 401) {
+        // 会话过期：本地登录态即刻作废并回登录页，不把这一步留给用户猜。
+        // router 用动态 import：静态引入会把 createWebHistory() 拖进 Node 测试环境。
+        const { signOut } = useAuth()
+        signOut()
+        assistant.error = '登录已过期，请重新登录'
+        const { default: router } = await import('../router')
+        await router.push({ path: '/login', query: { next: router.currentRoute.value.fullPath } })
+        return
+      }
       if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`)
 
       const parser = createSSEParser()
@@ -81,5 +92,5 @@ export function useChatStream() {
     controller?.abort()
   }
 
-  return { messages, streaming, pendingCard, sessionId, send, abort }
+  return { messages, streaming, pendingCard, send, abort }
 }

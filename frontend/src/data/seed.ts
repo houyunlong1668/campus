@@ -53,6 +53,18 @@ export const periods: Period[] = [
 
 export const weekdays = ['周一', '周二', '周三', '周四', '周五']
 
+/** 学科域：课表配色的依据，颜色在此承载真实信息而非装饰 */
+export type Domain = 'math' | 'cs' | 'lang' | 'pe' | 'hum' | 'lab'
+
+export const DOMAIN_LABELS: Record<Domain, string> = {
+  math: '数学',
+  cs: '计算机',
+  lang: '外语',
+  pe: '体育',
+  hum: '人文',
+  lab: '实践',
+}
+
 export interface CourseEntry {
   name: string
   code: string
@@ -65,21 +77,22 @@ export interface CourseEntry {
   credits: number
   weeks: string
   kind: '必修' | '选修' | '实践'
+  domain: Domain
 }
 
 export const courses: CourseEntry[] = [
-  { name: '高等数学（下）', code: 'MATH2041', teacher: '王建国', room: '主楼 A302', day: 1, periods: [1, 2], credits: 5, weeks: '1-16', kind: '必修' },
-  { name: '数据结构', code: 'CS2052', teacher: '李慧', room: '实验楼 B101', day: 1, periods: [3, 4], credits: 4, weeks: '1-16', kind: '必修' },
-  { name: '体育（篮球）', code: 'PE2061', teacher: '陈毅', room: '风雨球馆 2 号场', day: 1, periods: [7, 8], credits: 1, weeks: '2-17', kind: '必修' },
-  { name: '大学英语（四）', code: 'FL2034', teacher: 'Chen Min', room: '外语楼 C203', day: 2, periods: [1, 2], credits: 2, weeks: '1-14', kind: '必修' },
-  { name: '离散数学', code: 'MATH2032', teacher: '孙立', room: '主楼 A205', day: 2, periods: [5, 6], credits: 3.5, weeks: '1-16', kind: '必修' },
-  { name: '计算机网络', code: 'CS3011', teacher: '赵东', room: '主楼 A415', day: 3, periods: [3, 4], credits: 3.5, weeks: '3-18', kind: '必修' },
-  { name: '算法设计与分析', code: 'CS3021', teacher: '周涛', room: '实验楼 B207', day: 3, periods: [5, 6], credits: 3, weeks: '3-18', kind: '必修' },
-  { name: '操作系统', code: 'CS3031', teacher: '吴敏', room: '主楼 A302', day: 4, periods: [1, 2], credits: 4, weeks: '4-19', kind: '必修' },
-  { name: '概率论与数理统计', code: 'MATH2042', teacher: '何秀', room: '主楼 A205', day: 4, periods: [3, 4], credits: 3.5, weeks: '4-19', kind: '必修' },
-  { name: '人工智能导论', code: 'CS3099', teacher: '林一', room: '实验楼 B305', day: 4, periods: [7, 8], credits: 2, weeks: '5-16', kind: '选修' },
-  { name: '中国近现代史纲要', code: 'HS2012', teacher: '徐平', room: '文渊楼报告厅', day: 5, periods: [1, 2], credits: 3, weeks: '1-14', kind: '必修' },
-  { name: '数据库系统实验', code: 'CS2062', teacher: '郑好', room: '实验楼 B108', day: 5, periods: [5, 6], credits: 1.5, weeks: '6-18', kind: '实践' },
+  { name: '高等数学（下）', code: 'MATH2041', teacher: '王建国', room: '主楼 A302', day: 1, periods: [1, 2], credits: 5, weeks: '1-16', kind: '必修', domain: 'math' },
+  { name: '数据结构', code: 'CS2052', teacher: '李慧', room: '实验楼 B101', day: 1, periods: [3, 4], credits: 4, weeks: '1-16', kind: '必修', domain: 'cs' },
+  { name: '体育（篮球）', code: 'PE2061', teacher: '陈毅', room: '风雨球馆 2 号场', day: 1, periods: [7, 8], credits: 1, weeks: '2-17', kind: '必修', domain: 'pe' },
+  { name: '大学英语（四）', code: 'FL2034', teacher: 'Chen Min', room: '外语楼 C203', day: 2, periods: [1, 2], credits: 2, weeks: '1-14', kind: '必修', domain: 'lang' },
+  { name: '离散数学', code: 'MATH2032', teacher: '孙立', room: '主楼 A205', day: 2, periods: [5, 6], credits: 3.5, weeks: '1-16', kind: '必修', domain: 'math' },
+  { name: '计算机网络', code: 'CS3011', teacher: '赵东', room: '主楼 A415', day: 3, periods: [3, 4], credits: 3.5, weeks: '3-18', kind: '必修', domain: 'cs' },
+  { name: '算法设计与分析', code: 'CS3021', teacher: '周涛', room: '实验楼 B207', day: 3, periods: [5, 6], credits: 3, weeks: '3-18', kind: '必修', domain: 'cs' },
+  { name: '操作系统', code: 'CS3031', teacher: '吴敏', room: '主楼 A302', day: 4, periods: [1, 2], credits: 4, weeks: '4-19', kind: '必修', domain: 'cs' },
+  { name: '概率论与数理统计', code: 'MATH2042', teacher: '何秀', room: '主楼 A205', day: 4, periods: [3, 4], credits: 3.5, weeks: '4-19', kind: '必修', domain: 'math' },
+  { name: '人工智能导论', code: 'CS3099', teacher: '林一', room: '实验楼 B305', day: 4, periods: [7, 8], credits: 2, weeks: '5-16', kind: '选修', domain: 'cs' },
+  { name: '中国近现代史纲要', code: 'HS2012', teacher: '徐平', room: '文渊楼报告厅', day: 5, periods: [1, 2], credits: 3, weeks: '1-14', kind: '必修', domain: 'hum' },
+  { name: '数据库系统实验', code: 'CS2062', teacher: '郑好', room: '实验楼 B108', day: 5, periods: [5, 6], credits: 1.5, weeks: '6-18', kind: '实践', domain: 'lab' },
 ]
 
 export interface GradeRow {
