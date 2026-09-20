@@ -1,10 +1,21 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import FloatingBall from './components/chat/FloatingBall.vue'
+import { useAuth } from './composables/useAuth'
 import { student } from './data/seed'
 
 const route = useRoute()
+const router = useRouter()
+// 只读不取：/auth/me 由 router.beforeEach 的 bootstrap 负责，这里再调一次会重复打后端
+const { user, logout } = useAuth()
+const isLogin = computed(() => route.path === '/login')
+
+// 守卫只在导航时生效：退出后必须显式跳登录页，否则会停在原页面变成"未登录却在看着数据"
+async function onLogout() {
+  await logout()
+  router.push('/login')
+}
 const tabs = [
   { to: '/', label: '首页' },
   { to: '/academic/schedule', label: '课表' },
@@ -31,20 +42,21 @@ const todayLabel = computed(() => {
             <em>教务系统 · 学生端</em>
           </span>
         </div>
-        <div class="meta">
+        <div class="meta" v-if="!isLogin">
           <span class="meta-item">{{ todayLabel }}</span>
           <span class="meta-sep" />
           <span class="meta-item">第 {{ student.week }} 周 / 共 {{ student.totalWeeks }} 周</span>
           <span class="meta-sep" />
           <span class="who">
-            <span class="who-name">{{ student.name }}</span>
-            <span class="code who-id">{{ student.id }}</span>
+            <span class="who-name">{{ user?.name ?? '—' }}</span>
+            <span class="code who-id">{{ user?.student_id ?? '未登录' }}</span>
+            <button type="button" class="logout" @click="onLogout">退出</button>
           </span>
         </div>
       </div>
     </header>
 
-    <nav class="tabs" aria-label="教务栏目">
+    <nav class="tabs" v-if="!isLogin" aria-label="教务栏目">
       <div class="tabs-inner">
         <RouterLink
           v-for="t in tabs"
@@ -60,7 +72,7 @@ const todayLabel = computed(() => {
       <RouterView />
     </main>
 
-    <footer class="foot">
+    <footer class="foot" v-if="!isLogin">
       <div class="foot-inner">
         <span>本站为课程项目仿真环境，课表、成绩、借阅数据均为 seed 假数据。</span>
         <span class="code">GET /chat · SSE</span>
@@ -163,6 +175,20 @@ const todayLabel = computed(() => {
 
 .who-id {
   color: rgba(231, 235, 242, 0.62);
+}
+
+.logout {
+  font: inherit;
+  font-size: 12px;
+  color: rgba(231, 235, 242, 0.72);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.logout:hover {
+  color: #fff;
 }
 
 .tabs {

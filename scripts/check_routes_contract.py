@@ -14,7 +14,9 @@ router_paths = set(re.findall(r"""path:\s*['"]([^'"]+)['"]""", router_src))
 registry_paths = {entry.path for entry in PAGE_REGISTRY}
 
 missing = sorted(registry_paths - router_paths)
-extra = sorted(p for p in router_paths - registry_paths if p != "/")
+# 非教务页面、因此不在 PAGE_REGISTRY 里的路由：首页与登录页
+NON_PAGE_ROUTES = {"/", "/login"}
+extra = sorted(router_paths - registry_paths - NON_PAGE_ROUTES)
 
 if missing or extra:
     if missing:

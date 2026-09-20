@@ -22,7 +22,7 @@ describe('useChatStream', () => {
       'event: token\ndata: {"text":"已为你找"}\n\n',
       'event: token\ndata: {"text":"到课表页"}\n\n',
       'event: nav_card\ndata: {"path":"/academic/schedule","title":"课表查询","reason":"最匹配"}\n\n',
-      'event: done\ndata: {"message_id":"m1","steps":["router","tool_executor","generator"],"session_id":"s1"}\n\n',
+      'event: done\ndata: {"message_id":"m1","steps":["router","tool_executor","generator"]}\n\n',
     ])
 
     const { messages, streaming, send } = useChatStream()
