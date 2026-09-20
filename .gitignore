@@ -29,3 +29,15 @@ backend/data/
 .DS_Store
 Thumbs.db
 .worktrees/
+
+# Python
+__pycache__/
+*.pyc
+backend/.venv/
+mcp_servers/*/.venv/
+# Node
+frontend/node_modules/
+frontend/dist/
+# Local data & secrets
+backend/data/*.db
+.env
