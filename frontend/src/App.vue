@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import HelloWorld from './components/HelloWorld.vue'
+import FloatingBall from './components/chat/FloatingBall.vue'
 </script>
 
 <template>
-  <HelloWorld />
+  <router-view />
+  <FloatingBall />
 </template>
