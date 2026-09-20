@@ -45,7 +45,10 @@ def _args_model(schema: dict[str, Any]):
     required = set(schema.get("required", []))
     fields = {}
     for name, spec in props.items():
-        py_type = _TYPE_MAP.get(spec.get("type", "string"), str)
+        json_type = spec.get("type")
+        # 复合 schema（anyOf/oneOf/$ref）与未知类型一律放行：
+        # 早先默认落成 str，真实模型传 {semester: "current"} 会被判成参数非法
+        py_type = _TYPE_MAP.get(json_type, Any) if isinstance(json_type, str) else Any
         if name not in required:
             py_type = py_type | None
         default = ... if name in required else None

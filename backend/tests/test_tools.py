@@ -26,6 +26,25 @@ class TestValidateArgs:
         ok, err = validate_args(self.schema, {"intent": 123})
         assert not ok and err
 
+    def test_anyof_对象参数不再被当成字符串(self):
+        """真模型回归：MCP 把 params 声明为 anyOf[object,null]，早先被误判成 str 而拒收。"""
+        anyof_schema = {
+            "type": "object",
+            "properties": {
+                "intent": {"type": "string"},
+                "params": {"anyOf": [{"additionalProperties": True, "type": "object"},
+                                     {"type": "null"}],
+                           "default": None},
+            },
+            "required": ["intent"],
+        }
+        ok, err = validate_args(anyof_schema, {
+            "intent": "查看这学期的课程安排",
+            "params": {"semester": "current", "action": "view_schedule"},
+        })
+        assert ok, err
+        assert validate_args(anyof_schema, {"intent": "查课表"})[0]
+
 
 class TestInMemoryRegistry:
     async def test_list_and_call(self):
