@@ -36,7 +36,12 @@ class StdioMcpRegistry(ToolRegistry):
 
         async def invoke():
             result = await self._session.call_tool(name, args)
-            return result.content[0].text  # JSON 字符串，generator 负责 loads
+            text = result.content[0].text if result.content else ""
+            # MCP 把 server 侧工具异常包成 isError=True 的正常响应帧：
+            # 不判它就把"工具失败"当成功返回，落库错误原因也会被扭曲
+            if result.is_error:
+                raise RuntimeError(text or f"工具 {name} 执行失败")
+            return text  # JSON 字符串，generator 负责 loads
 
         return await timed_call(invoke)
 

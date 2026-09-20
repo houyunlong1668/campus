@@ -56,6 +56,26 @@ async def chat(request: ChatRequest, req: Request):
     async def stream():
         first_token_at: float | None = None
         final_state: dict | None = None
+        persisted = False
+
+        async def persist():
+            # 异常轮次同样要落库——失败样本才是行为测试最需要看的
+            nonlocal persisted
+            if persisted:
+                return
+            persisted = True
+            state = final_state or {}
+            try:
+                await repository.record_exchange(
+                    session_id=request.session_id,
+                    user_text=request.message,
+                    assistant_text=state.get("answer", ""),
+                    tool_call=build_record(state),
+                    steps=state.get("steps", []),
+                )
+            except Exception:
+                logger.exception("request_id=%s 落库失败（不中断对话流）", request_id)
+
         try:
             async for mode, payload in graph.astream(
                 initial_state, stream_mode=["custom", "values"]
@@ -69,17 +89,7 @@ async def chat(request: ChatRequest, req: Request):
                     yield sse_frame(event, data)
                 else:
                     final_state = payload  # values 模式最后一条即合并后的最终 state
-            persisted = final_state or {}
-            try:
-                await repository.record_exchange(
-                    session_id=request.session_id,
-                    user_text=request.message,
-                    assistant_text=persisted.get("answer", ""),
-                    tool_call=build_record(persisted),
-                    steps=persisted.get("steps", []),
-                )
-            except Exception:
-                logger.exception("request_id=%s 落库失败（不中断对话流）", request_id)
+            await persist()
             yield sse_frame("done", {
                 "message_id": message_id,
                 "steps": (final_state or {}).get("steps", []),
@@ -87,10 +97,14 @@ async def chat(request: ChatRequest, req: Request):
             })
         except GraphRecursionError:
             logger.error("request_id=%s 触发 recursion_limit", request_id)
+            await persist()
             yield sse_frame("error", {"code": "recursion_limit", "message": "执行步数超限，请重试"})
-        except Exception as exc:  # 兜底：任何异常都以 error 事件收尾，不裸断流
+        except Exception:  # 兜底：任何异常都以 error 事件收尾，不裸断流
             logger.exception("request_id=%s 链路异常", request_id)
-            yield sse_frame("error", {"code": "internal", "message": str(exc)})
+            await persist()
+            # 异常原文只进日志，不外发：客户端拿到的是 request_id，可据此回查
+            yield sse_frame("error", {"code": "internal",
+                                      "message": f"服务处理异常，请重试（request_id={request_id}）"})
         logger.info("request_id=%s 总耗时=%.0fms", request_id, (time.perf_counter() - start) * 1000)
 
     return StreamingResponse(
