@@ -63,6 +63,8 @@ class TestHappyPath:
         assert final["steps"] == ["router", "tool_executor", "generator"]
         assert collected["nav_card"]["path"] == "/academic/schedule"
         assert "".join(collected["tokens"])  # 有文本输出
+        # 防回归：命中工具时首条话术须与 nav_card 语义一致，不得是兜底话术
+        assert "课表查询" in "".join(collected["tokens"])
         tool_events = [c for c in collected["custom"] if c[0] == "tool_call"]
         assert tool_events and tool_events[0][1]["ok"] is True
 
