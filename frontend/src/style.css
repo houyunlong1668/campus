@@ -18,6 +18,15 @@
   --body: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
   --mono: "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 
+  /* 学科域配色：低饱和学院派，六色彼此可辨且都不与朱红 --seal 相邻，
+     朱红因此能继续只表示"现在/需处理" */
+  --d-math: #3a5a8c;
+  --d-cs: #2e6a58;
+  --d-lang: #6b4e71;
+  --d-pe: #a8762c;
+  --d-hum: #6b6328;
+  --d-lab: #7b3f5e;
+
   --r-sm: 3px;
   --r-md: 6px;
   --shadow: 0 1px 2px rgba(22, 35, 58, 0.06), 0 8px 24px -12px rgba(22, 35, 58, 0.14);
@@ -44,6 +53,15 @@
   letter-spacing: 0.01em;
   color-scheme: light;
 }
+
+/* 学科域 → 实色 --c 与底色 --c-soft。
+   课表格子与图例共用这一份映射，避免两处各写一遍配色。 */
+.d-math { --c: var(--d-math); --c-soft: rgba(58, 90, 140, 0.12); }
+.d-cs   { --c: var(--d-cs);   --c-soft: rgba(46, 106, 88, 0.12); }
+.d-lang { --c: var(--d-lang); --c-soft: rgba(107, 78, 113, 0.12); }
+.d-pe   { --c: var(--d-pe);   --c-soft: rgba(168, 118, 44, 0.15); }
+.d-hum  { --c: var(--d-hum);  --c-soft: rgba(107, 99, 40, 0.14); }
+.d-lab  { --c: var(--d-lab);  --c-soft: rgba(123, 63, 94, 0.12); }
 
 * {
   box-sizing: border-box;

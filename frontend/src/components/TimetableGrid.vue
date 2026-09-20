@@ -78,7 +78,7 @@ function isNow(c: CourseEntry): boolean {
         v-for="c in shown.filter((x) => days.includes(x.day))"
         :key="c.code + c.day"
         class="course"
-        :class="{ 'is-now': isNow(c), 'is-slim': !detailed }"
+        :class="['d-' + c.domain, { 'is-now': isNow(c), 'is-slim': !detailed }]"
         :style="{
           gridRow: `${c.periods[0] + 1} / span ${c.periods.length}`,
           gridColumn: days.indexOf(c.day) + 2,
@@ -220,15 +220,17 @@ function isNow(c: CourseEntry): boolean {
   z-index: 1;
   margin: 4px;
   padding: 8px 10px;
-  background: var(--card);
+  background: var(--c-soft);
   border: 1px solid var(--rule);
-  border-left: 3px solid var(--ink);
+  border-left: 3px solid var(--c);
   border-radius: var(--r-sm);
   display: flex;
   flex-direction: column;
   gap: 2px;
   transition: box-shadow 0.16s ease, transform 0.16s ease;
 }
+
+/* 学科域 → --c / --c-soft 的映射在 style.css 令牌层，图例与课表共用 */
 
 .course:hover {
   box-shadow: var(--shadow);
@@ -260,10 +262,14 @@ function isNow(c: CourseEntry): boolean {
   padding: 6px 8px;
 }
 
-/* 正在上的那一节：整页唯一一处朱红填充 */
+/* 正在上的那一节：保留课程本来的学科色，只用朱红描环 + 呼吸圆点标记。
+   不再刷红底或加红雾——学科色一多，红色填充既与课程色打架又糊掉本色。 */
 .course.is-now {
-  border-left-color: var(--seal);
-  background: var(--seal-veil);
+  box-shadow: 0 0 0 2px var(--seal);
+}
+
+.course.is-now:hover {
+  box-shadow: 0 0 0 2px var(--seal), var(--shadow);
 }
 
 .live-dot {
