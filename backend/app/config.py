@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     sqlite_path: Path = Path(__file__).resolve().parent.parent / "data" / "campus.db"
     # 仿真用户：只从会话侧取，永不来自请求体（spec 6.1）
     fake_student_id: str = "20230001"
+    cookie_secure: bool = False
+    session_ttl_seconds: int = 43200
 
 
 @lru_cache
