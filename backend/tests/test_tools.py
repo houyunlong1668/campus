@@ -26,6 +26,16 @@ class TestValidateArgs:
         ok, err = validate_args(self.schema, {"intent": 123})
         assert not ok and err
 
+    def test_未声明字段被拒(self):
+        """S3 的 student_id 注入依赖这条底线：schema 没写的键不能悄悄通过校验。"""
+        ok, err = validate_args(self.schema, {"intent": "查成绩", "student_id": "20230002"})
+        assert not ok and "student_id" in err
+
+    def test_类型正确的多余键同样被拒(self):
+        ok, err = validate_args(
+            self.schema, {"intent": "查成绩", "params": {"a": 1}, "extra": 1})
+        assert not ok and "extra" in err
+
     def test_anyof_对象参数不再被当成字符串(self):
         """真模型回归：MCP 把 params 声明为 anyOf[object,null]，早先被误判成 str 而拒收。"""
         anyof_schema = {
