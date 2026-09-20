@@ -46,6 +46,7 @@ const rendered = computed(() => md.render(props.message.text))
   display: flex;
   flex-direction: column;
   gap: 8px;
+  color: var(--text);
   background: var(--card);
   border: 1px solid var(--rule);
   border-radius: var(--r-md);
@@ -92,7 +93,8 @@ const rendered = computed(() => md.render(props.message.text))
 .markdown-body {
   font-size: 14px;
   line-height: 1.7;
-  color: var(--text);
+  /* 颜色由容器决定：用户气泡是墨蓝底白字，这里写死 --text 会把文字压成 1.9:1 */
+  color: inherit;
 }
 
 .markdown-body :deep(p) {
@@ -126,7 +128,8 @@ const rendered = computed(() => md.render(props.message.text))
 }
 
 .markdown-body :deep(strong) {
-  color: var(--ink);
+  color: inherit;
+  font-weight: 600;
 }
 
 .markdown-body :deep(a) {
