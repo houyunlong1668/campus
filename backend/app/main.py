@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .api.chat import router as chat_router
 from .config import get_settings
 from .tools.base import ToolRegistry
 from .tools.stdio_mcp import stdio_registry
@@ -39,6 +40,8 @@ def create_app() -> FastAPI:
     async def debug_tools():
         registry: ToolRegistry = app.state.registry
         return {"tools": [t.model_dump() for t in await registry.list_tools()]}
+
+    app.include_router(chat_router)
 
     return app
 
