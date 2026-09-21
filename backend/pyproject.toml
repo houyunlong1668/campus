@@ -11,6 +11,7 @@ dependencies = [
     "langgraph>=0.3",
     "openai>=1.50",
     "aiosqlite>=0.20",
+    "aiomysql>=0.2",
 ]
 
 [dependency-groups]

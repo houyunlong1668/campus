@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     openai_model: str = ""
     openai_api_key: str = ""
     sqlite_path: Path = Path(__file__).resolve().parent.parent / "data" / "campus.db"
+    db_backend: str = "mysql"  # mysql | sqlite；sqlite 用于无 Docker 机器与全部测试
+    mysql_host: str = "127.0.0.1"
+    mysql_port: int = 3306
+    mysql_user: str = "root"
+    mysql_password: str = ""
+    mysql_database: str = "campus"
     # 仿真用户：只从会话侧取，永不来自请求体（spec 6.1）
     fake_student_id: str = "20230001"
     cookie_secure: bool = False
