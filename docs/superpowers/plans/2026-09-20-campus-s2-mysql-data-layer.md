@@ -842,9 +842,13 @@ async def test_seed_三账号异构数据(tmp_path):
         "WHERE e.student_id='20230002' AND z.student_id='20230001'")
     assert rows[0]["n"] == 0
 
-    # 幂等：再灌一遍行数不变
+    # 幂等：再灌一遍，**从库里数真行**——比返回字典的常量长度抓不到叠行
     again = await seed_academic(db)
     assert again == counts
+    for table in ("students", "courses", "enrollments", "course_sections",
+                  "makeup_items", "library_loans"):
+        rows = await db.fetch_all(f"SELECT COUNT(*) AS n FROM {table}")
+        assert rows[0]["n"] == counts[table], f"{table} 重复灌库产生叠行"
 
 
 async def test_seed_日期是真日期_且相对灌库日推导(tmp_path):
