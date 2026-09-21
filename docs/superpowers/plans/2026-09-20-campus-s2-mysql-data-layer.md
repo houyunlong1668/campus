@@ -216,13 +216,12 @@ async def test_sqlite_execute_script_多语句(tmp_path):
 
 
 async def test_迁移按序应用且幂等(tmp_path):
-    db = await init_sqlite(tmp_path / "campus.db")
+    path = tmp_path / "campus.db"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = SqliteDatabase(path)
 
-    applied = await run_migrations(db)
-    assert applied == [1]
-
-    # 幂等：再跑无新应用
-    assert await run_migrations(db) == []
+    assert await run_migrations(db) == [1]      # 首次：应用 0001
+    assert await run_migrations(db) == []       # 再次：幂等，无新应用
 
     # 九张业务表 + schema_version 都在
     rows = await db.fetch_all(
