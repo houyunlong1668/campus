@@ -38,9 +38,11 @@
 **Interfaces:**
 - Produces: 可 `docker info` 的引擎、`deploy/.env`（`MYSQL_ROOT_PASSWORD` / `AGENT_RO_PASSWORD`）、healthy 的 mysql 容器、`agent_ro` 对基表零权限的先验判据。后续任务只依赖"引擎可达 + compose 文件存在"，不依赖本任务的具体密码。
 
-> **状态：本任务已于 2026-09-20 执行完毕**（deploy 文件见提交 `31c8cda`；MySQL 8.4.11 healthy、`agent_ro` 已锁到对 `campus` 零权限、Windows 侧 `127.0.0.1:3306` TCP 可达）。下面的勾即当时的实测判据，复跑可验证。
+> **状态：本任务已于 2026-09-20 执行完毕**（deploy 文件见提交 `31c8cda`；MySQL 8.4.11 healthy、`agent_ro` 已锁到对 `campus` 零权限）。下面的勾即当时的实测判据，复跑可验证。
+>
+> **Task 3 复审时的更正（重要）**：宿主机 `127.0.0.1:3306` 上跑着一个**非本项目的原生 mysqld**（Windows 服务），compose 容器实际只在 `[::1]:3306` 被 wslrelay 接管——本任务 Step 5 当初看到的 `TCP_OK` 是那个外来 mysqld，不是我们的容器（判据本身写错了对象）。已把 compose 改为发布 `3307:3306`，`backend/.env` 相应写 `MYSQL_PORT=3307`；不要去停那个外来服务。另外 WSL 空闲会回收容器，compose 已加 `restart: unless-stopped`，长任务前仍应先 `wsl docker start deploy-mysql-1` 再验证 healthy。
 
-> **环境结论（2026-09-20 实测，取代 spec 6.1 的 install.sh 路线）**：Windows 侧 docker CLI 走 2375 且未监听；按用户决策**不再配置 2375**，所有 docker 操作都在 WSL 内执行（Git Bash 里以 `wsl docker ...` 或 `wsl bash -lc "cd /mnt/c/... && docker compose ..."` 调用）。WSL 内 daemon 原生可达（实测 29.7.2），compose 发布的 `3306:3306` 经 WSL2 端口转发后 Windows 侧 `127.0.0.1:3306` 可直连（已实测 TCP_OK），后端 aiomysql 无需任何特殊配置。
+> **环境结论（2026-09-20 实测，取代 spec 6.1 的 install.sh 路线）**：Windows 侧 docker CLI 走 2375 且未监听；按用户决策**不再配置 2375**，所有 docker 操作都在 WSL 内执行（Git Bash 里以 `wsl docker ...` 或 `wsl bash -lc "cd /mnt/c/... && docker compose ..."` 调用）。WSL 内 daemon 原生可达（实测 29.7.2）。
 
 - [x] **Step 1: 确认引擎可达**
 
@@ -64,7 +66,7 @@ services:
       MYSQL_DATABASE: campus
       MYSQL_USER: agent_ro
       MYSQL_PASSWORD: ${AGENT_RO_PASSWORD}
-    ports: ["3306:3306"]
+    ports: ["3307:3306"]
     volumes: [campus-mysql:/var/lib/mysql]
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_ROOT_PASSWORD}"]
@@ -132,10 +134,10 @@ Expected: `SELECT 1` 返回 1；`SHOW DATABASES` 只有 `information_schema` 与
 - [x] **Step 5: 从 Windows 侧验证端口转发**
 
 ```bash
-(echo > /dev/tcp/127.0.0.1/3306) && echo TCP_OK
+(echo > /dev/tcp/127.0.0.1/3307) && echo TCP_OK
 ```
 
-Expected: `TCP_OK`。此判据保证后端 `aiomysql` 用 `127.0.0.1:3306` 直连即可，无需改任何网络配置。
+Expected: `TCP_OK`。此判据保证后端 `aiomysql` 用 `127.0.0.1:3307` 直连即可（映射 `3307:3306`；3306 被宿主机上的外来 mysqld 占着）。**注意**：不要用 3306 做这条判据——那条测到的是外来实例，不是容器（本任务当初正是这样误判的，见上方更正）。
 
 - [x] **Step 6: 提交**
 
@@ -404,7 +406,7 @@ def build_database(settings) -> Database:
 ```bash
 DB_BACKEND=sqlite
 MYSQL_HOST=127.0.0.1
-MYSQL_PORT=3306
+MYSQL_PORT=3307
 MYSQL_USER=root
 MYSQL_PASSWORD=root-local-dev
 MYSQL_DATABASE=campus
