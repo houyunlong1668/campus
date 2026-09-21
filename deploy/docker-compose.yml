@@ -10,7 +10,10 @@ services:
       MYSQL_DATABASE: campus
       MYSQL_USER: agent_ro
       MYSQL_PASSWORD: ${AGENT_RO_PASSWORD}
-    ports: ["3306:3306"]
+    # 宿主机 3306 已被一个非本项目的原生 mysqld 占用，映射到 3307。
+    # 后端配置对应写 MYSQL_PORT=3307。
+    ports: ["3307:3306"]
+    restart: unless-stopped
     volumes: [campus-mysql:/var/lib/mysql]
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_ROOT_PASSWORD}"]
