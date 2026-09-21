@@ -4,6 +4,7 @@ from app.config import Settings
 from app.db.base import to_mysql_placeholders
 from app.db.database import MySQLDatabase, SqliteDatabase, build_database
 from app.db.migrations import init_sqlite, run_migrations
+from app.db.upsert import save_row
 
 
 def test_占位符转换只动引号外的问号():
@@ -69,3 +70,42 @@ def test_MySQLDatabase_构造即记录方言与连接参数_不真正连接():
                        password="pw", database="campus")
     assert db.dialect == "mysql"
     assert db.host == "127.0.0.1" and db.database == "campus"
+
+
+def test_build_database_sqlite模式自动建运行态目录(tmp_path):
+    """全新 clone 没有 backend/data/（gitignored），旧 lifespan 因此在首启就炸
+    `unable to open database file`；建目录是 build_database 的责任。"""
+    path = tmp_path / "data" / "nested" / "campus.db"
+    assert not path.parent.exists()
+
+    db = build_database(Settings(db_backend="sqlite", sqlite_path=path))
+
+    assert db.dialect == "sqlite"
+    assert path.parent.is_dir()
+
+
+async def test_save_row_插入分支与更新分支(tmp_path):
+    db = SqliteDatabase(tmp_path / "t.db")
+    await db.execute("CREATE TABLE t (id TEXT PRIMARY KEY, name TEXT, note TEXT)")
+
+    await save_row(db, "t", {"id": "a"}, {"name": "甲", "note": "只写一次"})
+    assert await db.fetch_all("SELECT id, name, note FROM t") == [
+        {"id": "a", "name": "甲", "note": "只写一次"}]
+
+    # 主键命中 → 走 UPDATE，只改给出的非键列，未给出的列保持原值
+    await save_row(db, "t", {"id": "a"}, {"name": "乙"})
+    assert await db.fetch_all("SELECT id, name, note FROM t ORDER BY id") == [
+        {"id": "a", "name": "乙", "note": "只写一次"}]
+
+    await save_row(db, "t", {"id": "b"}, {"name": "丙", "note": "n"})
+    assert len(await db.fetch_all("SELECT id FROM t")) == 2
+
+
+async def test_save_row_拒绝拼得出注入的标识符(tmp_path):
+    db = SqliteDatabase(tmp_path / "t.db")
+    await db.execute("CREATE TABLE t (id TEXT PRIMARY KEY, name TEXT)")
+
+    with pytest.raises(ValueError):
+        await save_row(db, "t", {"id": "a"}, {"name, note": "甲"})
+    with pytest.raises(ValueError):
+        await save_row(db, "t; DROP TABLE t", {"id": "a"}, {"name": "甲"})

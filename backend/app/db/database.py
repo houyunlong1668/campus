@@ -79,6 +79,10 @@ class MySQLDatabase:
 
 def build_database(settings) -> Database:
     if settings.db_backend == "sqlite":
+        # 运行态目录（backend/data/）是 gitignored 的，全新 clone 里没有它；不在这里建好，
+        # lifespan 第一次起服务就会在 sqlite 打开文件时炸 `unable to open database file`。
+        # init_sqlite 里也有同样一句——mkdir 幂等，两条路径各自都能独立工作。
+        settings.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
         return SqliteDatabase(settings.sqlite_path)
     if settings.db_backend == "mysql":
         return MySQLDatabase(

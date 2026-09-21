@@ -3,6 +3,7 @@ from typing import Protocol
 from pydantic import BaseModel
 
 from ..db.base import Database
+from ..db.upsert import save_row
 from .passwords import hash_password
 
 SEED_PASSWORD = "demo1234"  # 本地仿真账号；见 spec 第 11 节告警
@@ -38,15 +39,13 @@ class DbStudentRepository:
         return rows[0]["password_hash"] if rows else None
 
     async def upsert(self, student: Student, password_hash: str) -> None:
-        await self._db.execute(
-            """INSERT INTO students (student_id, name, password_hash, major, class_name, college)
-               VALUES (?,?,?,?,?,?)
-               ON CONFLICT(student_id) DO UPDATE SET
-                 name=excluded.name, password_hash=excluded.password_hash,
-                 major=excluded.major, class_name=excluded.class_name,
-                 college=excluded.college""",
-            (student.student_id, student.name, password_hash,
-             student.major, student.class_name, student.college),
+        # 先查后写而不是 ON CONFLICT / REPLACE INTO，理由见 app/db/upsert.py 模块注释。
+        await save_row(
+            self._db, "students",
+            {"student_id": student.student_id},
+            {"name": student.name, "password_hash": password_hash,
+             "major": student.major, "class_name": student.class_name,
+             "college": student.college},
         )
 
 
@@ -65,7 +64,7 @@ SEED_STUDENTS: list[tuple[Student, str]] = [
 
 
 async def seed_students(db: Database) -> int:
-    """幂等灌库：ON CONFLICT 覆盖，重复调用不产生新行。"""
+    """幂等灌库：save_row 先查后写，重复调用不产生新行、非键列以 seed 常量为准。"""
     repo = build_student_repository(db)
     for student, plain in SEED_STUDENTS:
         await repo.upsert(student, hash_password(plain))
