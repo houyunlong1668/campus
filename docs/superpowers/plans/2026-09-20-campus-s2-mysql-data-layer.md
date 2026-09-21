@@ -38,14 +38,16 @@
 **Interfaces:**
 - Produces: 可 `docker info` 的引擎、`deploy/.env`（`MYSQL_ROOT_PASSWORD` / `AGENT_RO_PASSWORD`）、healthy 的 mysql 容器、`agent_ro` 对基表零权限的先验判据。后续任务只依赖"引擎可达 + compose 文件存在"，不依赖本任务的具体密码。
 
+> **状态：本任务已于 2026-09-20 执行完毕**（deploy 文件见提交 `31c8cda`；MySQL 8.4.11 healthy、`agent_ro` 已锁到对 `campus` 零权限、Windows 侧 `127.0.0.1:3306` TCP 可达）。下面的勾即当时的实测判据，复跑可验证。
+
 > **环境结论（2026-09-20 实测，取代 spec 6.1 的 install.sh 路线）**：Windows 侧 docker CLI 走 2375 且未监听；按用户决策**不再配置 2375**，所有 docker 操作都在 WSL 内执行（Git Bash 里以 `wsl docker ...` 或 `wsl bash -lc "cd /mnt/c/... && docker compose ..."` 调用）。WSL 内 daemon 原生可达（实测 29.7.2），compose 发布的 `3306:3306` 经 WSL2 端口转发后 Windows 侧 `127.0.0.1:3306` 可直连（已实测 TCP_OK），后端 aiomysql 无需任何特殊配置。
 
-- [ ] **Step 1: 确认引擎可达**
+- [x] **Step 1: 确认引擎可达**
 
 Run: `wsl docker info --format '{{.ServerVersion}}'`
 Expected: 输出非空版本号。若 WSL 内也不可达，报告环境阻塞并停止整个 S2（不许改用 SQLite 冒充交付，spec 6.1 精神不变）。
 
-- [ ] **Step 2: 写 compose 与锁死脚本**
+- [x] **Step 2: 写 compose 与锁死脚本**
 
 `deploy/docker-compose.yml` 逐字（spec 6.2；注释照抄其说明）：
 
@@ -96,7 +98,7 @@ MYSQL_ROOT_PASSWORD=root-local-dev
 AGENT_RO_PASSWORD=agent-ro-local
 ```
 
-- [ ] **Step 3: 起库并等 healthy**
+- [x] **Step 3: 起库并等 healthy**
 
 ```bash
 wsl bash -lc "cd /mnt/c/Users/houyunlong/Desktop/campusProject && \
@@ -114,7 +116,7 @@ wsl bash -lc "cd /mnt/c/Users/houyunlong/Desktop/campusProject && \
   docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d"
 ```
 
-- [ ] **Step 4: 执行锁死并验证 agent_ro 最小权限**
+- [x] **Step 4: 执行锁死并验证 agent_ro 最小权限**
 
 ```bash
 wsl bash -lc "cd /mnt/c/Users/houyunlong/Desktop/campusProject && \
@@ -127,7 +129,7 @@ wsl bash -lc "cd /mnt/c/Users/houyunlong/Desktop/campusProject && \
 
 Expected: `SELECT 1` 返回 1；`SHOW DATABASES` 只有 `information_schema` 与 `performance_schema`——`campus` 都不可见。若能看到 campus 或任何业务表，锁死失败，停查。
 
-- [ ] **Step 5: 从 Windows 侧验证端口转发**
+- [x] **Step 5: 从 Windows 侧验证端口转发**
 
 ```bash
 (echo > /dev/tcp/127.0.0.1/3306) && echo TCP_OK
@@ -135,7 +137,7 @@ Expected: `SELECT 1` 返回 1；`SHOW DATABASES` 只有 `information_schema` 与
 
 Expected: `TCP_OK`。此判据保证后端 `aiomysql` 用 `127.0.0.1:3306` 直连即可，无需改任何网络配置。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add deploy/docker-compose.yml deploy/.env.example deploy/mysql/lockdown_agent_ro.sql
