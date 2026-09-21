@@ -888,6 +888,7 @@ from app.config import get_settings  # noqa: E402
 from app.db.base import Database  # noqa: E402
 from app.db.database import build_database  # noqa: E402
 from app.db.migrations import run_migrations  # noqa: E402
+from app.db.upsert import save_row  # noqa: E402
 
 SEED_PASSWORD = "demo1234"
 
@@ -1021,33 +1022,27 @@ def dt(days: int, hour: int, minute: int = 0) -> str:
 
 
 async def seed_academic(db: Database) -> dict[str, int]:
+    # 一律用 app.db.upsert.save_row（Task 3 已落地的方言无关"先查后写"）：
+    # ON CONFLICT 是 SQLite/PG 语法，MySQL 8.4 不认；REPLACE INTO 是 DELETE+INSERT，
+    # 会被子表外键 RESTRICT 挡住第二次幂等运行。
     counts: dict[str, int] = {}
     for sid, name, major, cls, college in STUDENTS:
-        await db.execute(
-            "INSERT INTO students (student_id, name, password_hash, major, class_name, college)"
-            " VALUES (?,?,?,?,?,?) ON CONFLICT(student_id) DO UPDATE SET"
-            " name=excluded.name, major=excluded.major, class_name=excluded.class_name,"
-            " college=excluded.college",
-            (sid, name, hash_password(SEED_PASSWORD), major, cls, college))
+        await save_row(db, "students", {"student_id": sid},
+                       {"name": name, "password_hash": hash_password(SEED_PASSWORD),
+                        "major": major, "class_name": cls, "college": college})
     counts["students"] = len(STUDENTS)
 
     for code, name, credits, teacher, college, kind, domain in COURSES:
-        await db.execute(
-            "INSERT INTO courses (course_code, course_name, credits, teacher, college, kind, domain)"
-            " VALUES (?,?,?,?,?,?,?) ON CONFLICT(course_code) DO UPDATE SET"
-            " course_name=excluded.course_name, credits=excluded.credits, teacher=excluded.teacher,"
-            " college=excluded.college, kind=excluded.kind, domain=excluded.domain",
-            (code, name, credits, teacher, college, kind, domain))
+        await save_row(db, "courses", {"course_code": code},
+                       {"course_name": name, "credits": credits, "teacher": teacher,
+                        "college": college, "kind": kind, "domain": domain})
     counts["courses"] = len(COURSES)
 
     for sid, code, name, term, credits, score, teacher in ENROLLMENTS:
-        await db.execute(
-            "INSERT INTO enrollments (student_id, course_code, course_name, term, credits, score,"
-            " grade_points, teacher) VALUES (?,?,?,?,?,?,?,?)"
-            " ON CONFLICT(student_id, course_code, term) DO UPDATE SET"
-            " course_name=excluded.course_name, credits=excluded.credits, score=excluded.score,"
-            " grade_points=excluded.grade_points, teacher=excluded.teacher",
-            (sid, code, name, term, credits, score, points(score), teacher))
+        await save_row(db, "enrollments",
+                       {"student_id": sid, "course_code": code, "term": term},
+                       {"course_name": name, "credits": credits, "score": score,
+                        "grade_points": points(score), "teacher": teacher})
     counts["enrollments"] = len(ENROLLMENTS)
 
     n = 0
