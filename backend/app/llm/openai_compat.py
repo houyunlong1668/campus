@@ -9,7 +9,13 @@ from .base import RouteDecision
 ROUTER_SYSTEM = (
     "你是校园助手的路由器。用户输入一句话，判断是否需要调用工具。"
     "需要时用工具调用表达，不要直接回答。可用工具只有系统提供的那些。"
+    "要定位页面时直接调 resolve_page（把用户原话填进 intent），不要调 list_pages——"
+    "页面清单已包含在工具说明里，探路调用会被丢弃。"
 )
+
+# 探路型工具：模型爱先调它们"看看有什么"，但本链路每轮只执行一个工具，
+# 取第一个调用时必须跳过这类，否则真正的 resolve_page 会被丢掉（跳转卡片不出现）
+_EXPLORE_TOOLS = frozenset({"list_pages"})
 
 ANSWER_SYSTEM = (
     "你是校园助手。基于工具返回结果用中文简短回答；若工具有 nav 信息，"
@@ -41,13 +47,16 @@ class OpenAICompatProvider:
         )
         msg = resp.choices[0].message
         if msg.tool_calls:
-            call = msg.tool_calls[0]
-            try:
-                args = json.loads(call.function.arguments or "{}")
-            except json.JSONDecodeError:
-                args = {}
-            return RouteDecision(intent=user_input[:20], tool_name=call.function.name,
-                                 tool_args=args, confidence=1.0)
+            actionable = [c for c in msg.tool_calls
+                          if c.function.name not in _EXPLORE_TOOLS]
+            call = actionable[0] if actionable else None
+            if call is not None:
+                try:
+                    args = json.loads(call.function.arguments or "{}")
+                except json.JSONDecodeError:
+                    args = {}
+                return RouteDecision(intent=user_input[:20], tool_name=call.function.name,
+                                     tool_args=args, confidence=1.0)
         return RouteDecision(intent=user_input[:20], tool_name=None,
                              tool_args={}, confidence=0.5)
 
