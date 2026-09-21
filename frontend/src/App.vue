@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import FloatingBall from './components/chat/FloatingBall.vue'
 import { useAuth } from './composables/useAuth'
-import { student } from './data/seed'
+import { termMeta } from './data/seed'
 
 const route = useRoute()
 const router = useRouter()
@@ -45,7 +45,7 @@ const todayLabel = computed(() => {
         <div class="meta" v-if="!isLogin">
           <span class="meta-item">{{ todayLabel }}</span>
           <span class="meta-sep" />
-          <span class="meta-item">第 {{ student.week }} 周 / 共 {{ student.totalWeeks }} 周</span>
+          <span class="meta-item">第 {{ termMeta.week }} 周 / 共 {{ termMeta.totalWeeks }} 周</span>
           <span class="meta-sep" />
           <span class="who">
             <span class="who-name">{{ user?.name ?? '—' }}</span>

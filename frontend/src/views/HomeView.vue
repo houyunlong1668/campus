@@ -1,19 +1,44 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import TimetableGrid from '../components/TimetableGrid.vue'
 import { useAssistant } from '../composables/useAssistant'
+import { useResource } from '../composables/useResource'
 import {
-  courses, creditsDone, gpa, libraryStats, loans, makeup, nextUp, periods, student, nowPeriod, todayCourses,
+  creditsDoneOf, gpaOf, libraryMeta, nextUp, nowPeriod, periods, termMeta, todayCourses,
 } from '../data/seed'
+import type { CourseEntry, GradeRow, LoanItem, MakeupItem } from '../types'
 
 const { ask } = useAssistant()
+
+const scheduleR = useResource<{ courses: CourseEntry[] }>('/api/schedule')
+const gradesR = useResource<{ grades: GradeRow[] }>('/api/grades')
+const makeupR = useResource<{ items: MakeupItem[] }>('/api/makeup')
+const loansR = useResource<{ items: LoanItem[] }>('/api/loans')
+
+function reloadAll() {
+  void Promise.all([scheduleR.reload(), gradesR.reload(), makeupR.reload(), loansR.reload()])
+}
+onMounted(reloadAll)
+
+const courses = computed(() => scheduleR.data.value?.courses ?? [])
+const grades = computed(() => gradesR.data.value?.grades ?? [])
+const makeup = computed(() => makeupR.data.value?.items ?? [])
+const loans = computed(() => loansR.data.value?.items ?? [])
+
+const loading = computed(() =>
+  scheduleR.loading.value || gradesR.loading.value || makeupR.loading.value || loansR.loading.value)
+const error = computed(() =>
+  scheduleR.error.value || gradesR.error.value || makeupR.error.value || loansR.error.value)
 
 const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 const now = new Date()
 const jsDay = now.getDay()
-const live = computed(() => nowPeriod())
-const agenda = computed(() => todayCourses())
+const live = computed(() => nowPeriod(courses.value))
+const agenda = computed(() => todayCourses(courses.value))
+
+const gpa = computed(() => gpaOf(grades.value))
+const creditsDone = computed(() => creditsDoneOf(grades.value))
 
 /** 首页抬头只说一件事：此刻该干什么 */
 const status = computed(() => {
@@ -37,36 +62,40 @@ const status = computed(() => {
 
 /** 此刻没课时，最有用的信息是"下一次什么时候上课" */
 function nextLine(): string {
-  const n = nextUp()
+  const n = nextUp(courses.value)
   if (!n) return '未来一周没有排课'
   const when = n.dayOffset === 0 ? '今天' : n.dayOffset === 1 ? '明天' : dayNames[(jsDay + n.dayOffset) % 7]
   return `下次课 ${when} ${n.period.start} · ${n.course.name}`
 }
 
-const weekPct = computed(() => Math.round((student.week / student.totalWeeks) * 100))
-const creditPct = computed(() => Math.round((creditsDone / student.creditsRequired) * 100))
-const weeklySessions = computed(() => courses.reduce((s, c) => s + c.periods.length, 0))
+const weekPct = computed(() => Math.round((termMeta.week / termMeta.totalWeeks) * 100))
+const creditPct = computed(() => Math.round((creditsDone.value / termMeta.creditsRequired) * 100))
+const weeklySessions = computed(() => courses.value.reduce((s, c) => s + c.periods.length, 0))
 
-const overdue = loans.filter((l) => l.daysLeft < 0)
-const dueSoon = loans.filter((l) => l.daysLeft >= 0 && l.daysLeft <= 3)
+const overdue = computed(() => loans.value.filter((l) => l.daysLeft < 0))
+const dueSoon = computed(() => loans.value.filter((l) => l.daysLeft >= 0 && l.daysLeft <= 3))
 
 const reminders = computed(() => {
   const items: { to: string; tag: string; title: string; meta: string; urgent: boolean }[] = []
-  const m = makeup[0]
-  items.push({ to: '/academic/makeup', tag: '补考', title: m.course, meta: `${m.when} · ${m.place}`, urgent: false })
-  if (overdue.length) {
+  const m = makeup.value[0]
+  if (m) {
+    items.push({ to: '/academic/makeup', tag: m.type, title: m.course,
+                 meta: `${m.when} · ${m.place}`, urgent: false })
+  }
+  if (overdue.value.length) {
     items.push({
-      to: '/library', tag: '逾期', title: `${overdue.length} 本图书已逾期`,
-      meta: `应还 ${overdue[0].due.slice(0, 10)} · 罚款 ${libraryStats.fine}`, urgent: true,
+      to: '/library', tag: '逾期', title: `${overdue.value.length} 本图书已逾期`,
+      meta: `应还 ${overdue.value[0].due.slice(0, 10)} · 罚款 ${libraryMeta.fine}`, urgent: true,
     })
   }
-  if (dueSoon.length) {
+  if (dueSoon.value.length) {
     items.push({
-      to: '/library', tag: '应还', title: `${dueSoon.length} 本图书 3 日内应还`,
-      meta: `最近一本 ${dueSoon[0].title}`, urgent: false,
+      to: '/library', tag: '应还', title: `${dueSoon.value.length} 本图书 3 日内应还`,
+      meta: `最近一本 ${dueSoon.value[0].title}`, urgent: false,
     })
   }
-  items.push({ to: '/academic/grades', tag: '成绩', title: `${gpa} 平均绩点`, meta: `${makeup.length} 门课程需补考或重修`, urgent: false })
+  items.push({ to: '/academic/grades', tag: '成绩', title: `${gpa.value} 平均绩点`,
+               meta: `${makeup.value.length} 门课程需补考或重修`, urgent: false })
   return items
 })
 
@@ -80,9 +109,18 @@ const prompts = [
 
 <template>
   <div class="home">
+    <div v-if="loading" class="state-block" role="status">
+      <p class="state-title">正在读取教务数据…</p>
+      <div class="state-skeleton"><span /><span /><span /></div>
+    </div>
+    <div v-else-if="error" class="state-block" role="alert">
+      <p class="state-title">{{ error }}</p>
+      <button type="button" class="state-retry" @click="reloadAll">重试</button>
+    </div>
+    <template v-else>
     <section class="hero">
       <div class="hero-main">
-        <p class="eyebrow">{{ now.getFullYear() }}-{{ String(now.getMonth() + 1).padStart(2, '0') }}-{{ String(now.getDate()).padStart(2, '0') }} {{ dayNames[jsDay] }} · 第 {{ student.week }} 周</p>
+        <p class="eyebrow">{{ now.getFullYear() }}-{{ String(now.getMonth() + 1).padStart(2, '0') }}-{{ String(now.getDate()).padStart(2, '0') }} {{ dayNames[jsDay] }} · 第 {{ termMeta.week }} 周</p>
         <h1>{{ status.lead }}</h1>
         <p class="hero-course">{{ status.main }}</p>
         <p class="hero-tail">{{ status.tail }}</p>
@@ -92,14 +130,14 @@ const prompts = [
         <div class="gauge">
           <div class="gauge-row">
             <span class="gauge-label">学期进度</span>
-            <span class="gauge-val num">{{ student.week }}/{{ student.totalWeeks }} 周</span>
+            <span class="gauge-val num">{{ termMeta.week }}/{{ termMeta.totalWeeks }} 周</span>
           </div>
           <div class="bar"><span :style="{ width: weekPct + '%' }" /></div>
         </div>
         <div class="gauge">
           <div class="gauge-row">
             <span class="gauge-label">已修学分</span>
-            <span class="gauge-val num">{{ creditsDone }}/{{ student.creditsRequired }}</span>
+            <span class="gauge-val num">{{ creditsDone }}/{{ termMeta.creditsRequired }}</span>
           </div>
           <div class="bar"><span :style="{ width: creditPct + '%' }" /></div>
         </div>
@@ -112,7 +150,7 @@ const prompts = [
         <h2>今日安排</h2>
         <RouterLink to="/academic/schedule" class="link">看整周课表 →</RouterLink>
       </div>
-      <TimetableGrid v-if="agenda.length" :days="[jsDay]" detailed class="today" />
+      <TimetableGrid v-if="agenda.length" :days="[jsDay]" :items="agenda" detailed class="today" />
       <div v-else class="empty">
         <p class="empty-title">今天没有课</p>
         <p class="empty-hint">{{ nextLine() }}。要看看整周安排，还是问助手别的事？</p>
@@ -121,6 +159,7 @@ const prompts = [
 
     <section class="block">
       <div class="block-head"><h2>待办与提醒</h2></div>
+      <p v-if="!reminders.length" class="empty-hint">暂时没有待办。</p>
       <ul class="reminders">
         <li v-for="r in reminders" :key="r.title">
           <RouterLink :to="r.to" class="reminder" :class="{ 'is-urgent': r.urgent }">
@@ -146,6 +185,7 @@ const prompts = [
         </div>
       </div>
     </section>
+    </template>
   </div>
 </template>
 
@@ -422,5 +462,51 @@ const prompts = [
   .reminders {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+.state-block {
+  padding: 34px 20px;
+  border: 1px dashed var(--rule-2);
+  border-radius: var(--r-md);
+  background: var(--card);
+  text-align: center;
+}
+
+.state-title {
+  font-size: 13.5px;
+  color: var(--faint);
+}
+
+.state-skeleton {
+  margin-top: 16px;
+  display: grid;
+  gap: 8px;
+}
+
+.state-skeleton span {
+  height: 12px;
+  border-radius: 2px;
+  background: var(--rule);
+}
+
+.state-skeleton span:nth-child(1) { width: 62%; }
+.state-skeleton span:nth-child(2) { width: 84%; }
+.state-skeleton span:nth-child(3) { width: 45%; }
+
+.state-retry {
+  font: inherit;
+  font-size: 13px;
+  margin-top: 14px;
+  padding: 7px 16px;
+  color: #fff;
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.state-retry:hover {
+  background: var(--seal);
+  border-color: var(--seal);
 }
 </style>
