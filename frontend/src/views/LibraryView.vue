@@ -10,7 +10,6 @@ onMounted(reload)
 const items = computed(() => data.value?.items ?? [])
 const sorted = computed(() => [...items.value].sort((a, b) => a.daysLeft - b.daysLeft))
 const borrowed = computed(() => items.value.length)
-const overdueCount = computed(() => items.value.filter((l) => l.daysLeft < 0).length)
 const seatPct = computed(() =>
   Math.round((libraryMeta.seatsOpen / libraryMeta.seatsTotal) * 100))
 
@@ -40,8 +39,6 @@ function dayLabel(d: number): string {
       </div>
       <p class="head-note">
         可借 <span class="num">{{ libraryMeta.quota - borrowed }}</span> / {{ libraryMeta.quota }} 册 ·
-        在借 <span class="num">{{ borrowed }}</span> 册 ·
-        逾期 <span class="num">{{ overdueCount }}</span> 册 ·
         逾期罚款 <span class="num">{{ libraryMeta.fine }}</span>
       </p>
     </header>
