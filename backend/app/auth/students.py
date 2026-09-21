@@ -1,8 +1,8 @@
-from pathlib import Path
 from typing import Protocol
 
 from pydantic import BaseModel
 
+from ..db.base import Database
 from .passwords import hash_password
 
 SEED_PASSWORD = "demo1234"  # 本地仿真账号；见 spec 第 11 节告警
@@ -22,48 +22,36 @@ class StudentRepository(Protocol):
     async def upsert(self, student: Student, password_hash: str) -> None: ...
 
 
-class SqliteStudentRepository:
-    def __init__(self, path: Path):
-        self._path = path
+class DbStudentRepository:
+    def __init__(self, db: Database):
+        self._db = db
 
     async def get(self, student_id: str) -> Student | None:
-        import aiosqlite
-
-        async with aiosqlite.connect(self._path) as db:
-            db.row_factory = aiosqlite.Row
-            row = await (await db.execute(
-                "SELECT student_id, name, major, class_name, college "
-                "FROM students WHERE student_id = ?", (student_id,))).fetchone()
-        return Student(**dict(row)) if row else None
+        rows = await self._db.fetch_all(
+            "SELECT student_id, name, major, class_name, college "
+            "FROM students WHERE student_id = ?", (student_id,))
+        return Student(**rows[0]) if rows else None
 
     async def get_password_hash(self, student_id: str) -> str | None:
-        import aiosqlite
-
-        async with aiosqlite.connect(self._path) as db:
-            row = await (await db.execute(
-                "SELECT password_hash FROM students WHERE student_id = ?",
-                (student_id,))).fetchone()
-        return row[0] if row else None
+        rows = await self._db.fetch_all(
+            "SELECT password_hash FROM students WHERE student_id = ?", (student_id,))
+        return rows[0]["password_hash"] if rows else None
 
     async def upsert(self, student: Student, password_hash: str) -> None:
-        import aiosqlite
-
-        async with aiosqlite.connect(self._path) as db:
-            await db.execute(
-                """INSERT INTO students (student_id, name, password_hash, major, class_name, college)
-                   VALUES (?,?,?,?,?,?)
-                   ON CONFLICT(student_id) DO UPDATE SET
-                     name=excluded.name, password_hash=excluded.password_hash,
-                     major=excluded.major, class_name=excluded.class_name,
-                     college=excluded.college""",
-                (student.student_id, student.name, password_hash,
-                 student.major, student.class_name, student.college),
-            )
-            await db.commit()
+        await self._db.execute(
+            """INSERT INTO students (student_id, name, password_hash, major, class_name, college)
+               VALUES (?,?,?,?,?,?)
+               ON CONFLICT(student_id) DO UPDATE SET
+                 name=excluded.name, password_hash=excluded.password_hash,
+                 major=excluded.major, class_name=excluded.class_name,
+                 college=excluded.college""",
+            (student.student_id, student.name, password_hash,
+             student.major, student.class_name, student.college),
+        )
 
 
-def build_student_repository(path: Path) -> StudentRepository:
-    return SqliteStudentRepository(path)
+def build_student_repository(db: Database) -> StudentRepository:
+    return DbStudentRepository(db)
 
 
 SEED_STUDENTS: list[tuple[Student, str]] = [
@@ -76,9 +64,9 @@ SEED_STUDENTS: list[tuple[Student, str]] = [
 ]
 
 
-async def seed_students(path: Path) -> int:
+async def seed_students(db: Database) -> int:
     """幂等灌库：ON CONFLICT 覆盖，重复调用不产生新行。"""
-    repo = build_student_repository(path)
+    repo = build_student_repository(db)
     for student, plain in SEED_STUDENTS:
         await repo.upsert(student, hash_password(plain))
     return len(SEED_STUDENTS)

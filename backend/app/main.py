@@ -10,7 +10,9 @@ from .auth.rate_limit import LoginGuard
 from .auth.session import SessionStore
 from .auth.students import build_student_repository, seed_students
 from .config import get_settings
-from .db.engine import init_db
+from .db.base import Database
+from .db.database import build_database
+from .db.migrations import run_migrations
 from .db.repository import build_repository
 from .llm import build_provider
 from .tools.base import ToolRegistry
@@ -25,10 +27,12 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     app.state.settings = settings
     app.state.provider = build_provider(settings)
-    await init_db(settings.sqlite_path)
-    await seed_students(settings.sqlite_path)
-    app.state.repository = build_repository(settings.sqlite_path)
-    app.state.students = build_student_repository(settings.sqlite_path)
+    db: Database = build_database(settings)
+    await run_migrations(db)
+    app.state.db = db
+    await seed_students(db)
+    app.state.repository = build_repository(db)
+    app.state.students = build_student_repository(db)
     app.state.sessions = SessionStore(ttl_seconds=settings.session_ttl_seconds)
     app.state.login_guard = LoginGuard()
     async with stdio_registry(settings.navigation_server_dir) as registry:
