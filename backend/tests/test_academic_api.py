@@ -76,15 +76,37 @@ def test_补考时间已格式化且名额有文案(client):
     opening = next(i for i in items if i["status"] == "报名中")
     assert opening["when"].startswith("报名截止 ")
     assert opening["seats"] == "剩 23 / 120"
+    # 补考/重修没有名额列：seats 必须是 JSON null，而不是 ""或"剩  / "之类假文案
+    assert next(i for i in items if i["course"] == "大学物理（上）")["seats"] is None
 
 
 def test_借阅含逾期且daysLeft由服务端算(client):
     _login(client, "20230001")
     items = client.get("/api/loans").json()["items"]
     assert len(items) == 4
+    # seed 把四本书放在运行日起算 +2 / -3 / +11 / +6 天：钉死具体值，_days_left 差一天就红
+    assert {i["title"]: i["daysLeft"] for i in items} == {
+        "算法导论（第三版）上册": 2,
+        "深入理解计算机系统（第 3 版）": -3,
+        "数据库系统概念（第 7 版）": 11,
+        "人类简史：从动物到上帝": 6,
+    }
     assert any(i["daysLeft"] < 0 for i in items)
     assert all(WEEK_RE.match(i["due"]) for i in items)
     assert set(items[0]) == {"title", "callNo", "due", "daysLeft", "place"}
+
+
+def test_已归还的书不出现在借阅里(client):
+    """returned_at IS NULL 这道过滤：库里确实有一条已还的，端点必须不返回它。"""
+    rows = asyncio.run(
+        client.app.state.db.fetch_all(
+            "SELECT COUNT(*) AS n FROM library_loans"
+            " WHERE student_id = '20230001' AND returned_at IS NOT NULL"))
+    assert rows[0]["n"] == 1  # 靶子存在，否则下面的断言是空的
+    _login(client, "20230001")
+    titles = {i["title"] for i in client.get("/api/loans").json()["items"]}
+    assert "编译原理（第 2 版）" not in titles
+    assert len(titles) == 4
 
 
 def test_陈默是建筑学数据与周晓楠无交集(client):

@@ -47,6 +47,20 @@ async def test_seed_日期是真日期_且相对灌库日推导(tmp_path):
     db = await init_sqlite(tmp_path / "campus.db")
     await seed_academic(db)
     rows = await db.fetch_all("SELECT due_at FROM library_loans ORDER BY due_at")
-    assert len(rows) == 7
+    assert len(rows) == 8
     for r in rows:
         assert r["due_at"].count("-") == 2 and ":" in r["due_at"]
+
+
+async def test_seed_含一条已归还借阅(tmp_path):
+    """returned_at IS NULL 这道过滤要有靶子：库里必须既有已还也有未还。"""
+    db = await init_sqlite(tmp_path / "campus.db")
+    await seed_academic(db)
+    rows = await db.fetch_all(
+        "SELECT title, returned_at FROM library_loans"
+        " WHERE student_id = '20230001' AND returned_at IS NOT NULL")
+    assert [r["title"] for r in rows] == ["编译原理（第 2 版）"]
+    rows = await db.fetch_all(
+        "SELECT COUNT(*) AS n FROM library_loans"
+        " WHERE student_id = '20230001' AND returned_at IS NULL")
+    assert rows[0]["n"] == 4

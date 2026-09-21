@@ -138,6 +138,7 @@ BOOKS = {
     "建筑空间": ("TU-86 / L12", "二楼建筑艺术借阅区"),
     "建构文化": ("TU26 / F33", "二楼建筑艺术借阅区"),
     "费马": ("O1-49 / S21", "三楼自然科学借阅区"),
+    "编译原理": ("TP314 / A07", "三楼自然科学借阅区"),
 }
 
 
@@ -215,19 +216,23 @@ async def seed_academic(db: Database) -> dict[str, int]:
             row)
     counts["makeup_items"] = len(makeups)
 
+    # (student_id, title, call_no, shelf, due_at, returned_at)
+    # 未还的 4 本把 daysLeft 钉在 +2 / -3 / +11 / +6（逾期 1 本），已还的那本带 returned_at、
+    # 不该出现在 /api/loans 里——它存在的意义就是证明 returned_at IS NULL 这道过滤真的在拦东西。
     loans = [
-        ("20230001", "算法导论（第三版）上册", *BOOKS["算法"], dt(2, 20)),
-        ("20230001", "深入理解计算机系统（第 3 版）", *BOOKS["CSAPP"], dt(-3, 20)),
-        ("20230001", "数据库系统概念（第 7 版）", *BOOKS["数据库"], dt(11, 20)),
-        ("20230001", "人类简史：从动物到上帝", *BOOKS["人类简史"], dt(6, 20)),
-        ("20230002", "建筑空间组合论", *BOOKS["建筑空间"], dt(9, 20)),
-        ("20230002", "建构文化研究", *BOOKS["建构文化"], dt(-1, 20)),
-        ("20230007", "费马大定理：一个困惑了世间智者 358 年的谜", *BOOKS["费马"], dt(5, 20)),
+        ("20230001", "算法导论（第三版）上册", *BOOKS["算法"], dt(2, 20), None),
+        ("20230001", "深入理解计算机系统（第 3 版）", *BOOKS["CSAPP"], dt(-3, 20), None),
+        ("20230001", "数据库系统概念（第 7 版）", *BOOKS["数据库"], dt(11, 20), None),
+        ("20230001", "人类简史：从动物到上帝", *BOOKS["人类简史"], dt(6, 20), None),
+        ("20230001", "编译原理（第 2 版）", *BOOKS["编译原理"], dt(-10, 20), dt(-4, 16)),
+        ("20230002", "建筑空间组合论", *BOOKS["建筑空间"], dt(9, 20), None),
+        ("20230002", "建构文化研究", *BOOKS["建构文化"], dt(-1, 20), None),
+        ("20230007", "费马大定理：一个困惑了世间智者 358 年的谜", *BOOKS["费马"], dt(5, 20), None),
     ]
-    for sid, title, call_no, shelf, due in loans:
+    for sid, title, call_no, shelf, due, returned in loans:
         await db.execute(
-            "INSERT INTO library_loans (student_id, title, call_no, due_at, shelf)"
-            " VALUES (?,?,?,?,?)", (sid, title, call_no, due, shelf))
+            "INSERT INTO library_loans (student_id, title, call_no, due_at, shelf, returned_at)"
+            " VALUES (?,?,?,?,?,?)", (sid, title, call_no, due, shelf, returned))
     counts["library_loans"] = len(loans)
     return counts
 
