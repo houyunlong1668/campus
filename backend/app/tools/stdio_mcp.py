@@ -6,7 +6,8 @@ from typing import Any
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from .base import ToolRegistry, ToolResult, ToolSpec, timed_call, validate_args
+from .base import (ToolRegistry, ToolResult, ToolSpec, strip_trusted,
+                   timed_call, validate_args, with_trusted_args)
 
 
 class StdioMcpRegistry(ToolRegistry):
@@ -19,7 +20,8 @@ class StdioMcpRegistry(ToolRegistry):
         listed = await self._session.list_tools()
         self._specs = [
             # 适配说明：mcp 2.x Python 模型字段为 input_schema（wire 上仍是 inputSchema）
-            ToolSpec(name=t.name, description=t.description or "", input_schema=t.input_schema or {})
+            ToolSpec(name=t.name, description=t.description or "",
+                     input_schema=strip_trusted(t.name, t.input_schema or {}))
             for t in listed.tools
         ]
 
@@ -28,14 +30,20 @@ class StdioMcpRegistry(ToolRegistry):
 
     async def call_tool(self, name: str, args: dict[str, Any],
                         student_id: str | None = None) -> ToolResult:
-        # student_id 在 Task 4 只收不注入；Task 5 按裁决 A 在此做
-        # "先丢弃模型塞的、校验、再注入"（TRUSTED_ARGS）
         spec = next((s for s in self._specs if s.name == name), None)
         if spec is None:
             return ToolResult(ok=False, error=f"未知工具: {name}", latency_ms=0)
+        # 裁决 A 三步（覆盖 brief 的"先注入后校验"两步）：
+        # ① 只丢弃模型塞的受信键、不注入——让"模型视角的 args"与
+        #    已被 strip_trusted 剥过的 schema 一致；
+        # ② 用剥离后的 schema 校验剥离后的 args（extra="forbid" 底线不拆）；
+        # ③ 校验通过后才注入服务端学号——注入值来自会话、不是模型输入，
+        #    不过模型侧 schema 的关（spec 4.2"先校验再改写"的参数层同构延伸）。
+        args = with_trusted_args(name, args, None)
         ok, err = validate_args(spec.input_schema, args)
         if not ok:
             return ToolResult(ok=False, error=err, latency_ms=0)
+        args = with_trusted_args(name, args, student_id)
 
         async def invoke():
             result = await self._session.call_tool(name, args)

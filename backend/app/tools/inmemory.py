@@ -1,7 +1,8 @@
 from inspect import isawaitable
 from typing import Any, Callable
 
-from .base import ToolRegistry, ToolResult, ToolSpec, timed_call, validate_args
+from .base import (ToolRegistry, ToolResult, ToolSpec, timed_call, validate_args,
+                   with_trusted_args)
 
 
 class InMemoryRegistry(ToolRegistry):
@@ -15,13 +16,16 @@ class InMemoryRegistry(ToolRegistry):
 
     async def call_tool(self, name: str, args: dict[str, Any],
                         student_id: str | None = None) -> ToolResult:
-        # student_id：协议占位，InMemory 直调 fn、不经注入（Task 5 只改 stdio 侧）
         entry = self._tools.get(name)
         if entry is None:
             return ToolResult(ok=False, error=f"未知工具: {name}", latency_ms=0)
-        ok, err = validate_args(entry["spec"]["input_schema"], args)
+        # 裁决 A 的三步同构到 InMemory：它同样用 extra="forbid" 校验，
+        # 「先注入后校验」会让注入键被自己的 schema 拒掉。
+        args = with_trusted_args(name, args, None)   # ① 只丢弃模型塞的
+        ok, err = validate_args(entry["spec"]["input_schema"], args)  # ② 剥离后校验
         if not ok:
             return ToolResult(ok=False, error=err, latency_ms=0)
+        args = with_trusted_args(name, args, student_id)  # ③ 校验后注入
         fn: Callable[..., Any] = entry["fn"]
 
         # fn 同步异步都要接得住：Task 4 的 composite 测试用同步 lambda 造工具
