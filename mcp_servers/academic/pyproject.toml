@@ -1,0 +1,21 @@
+[project]
+name = "campus-mcp-academic"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=2.2,<3",
+    "pydantic>=2.7",
+    "sqlglot>=25",
+    "aiosqlite>=0.20",
+    "aiomysql>=0.2",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
+
+[tool.uv]
+package = false
