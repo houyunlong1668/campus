@@ -9,7 +9,7 @@ const bottom = ref<HTMLElement | null>(null)
 // 只跟 text 长度会漏掉状态条/卡片/错误到达时的滚动
 const tail = computed(() => {
   const last = props.messages.at(-1)
-  return `${props.messages.length}|${last?.text.length ?? 0}|${last?.toolCall ? 1 : 0}|${last?.navCard ? 1 : 0}|${last?.error ? 1 : 0}`
+  return `${props.messages.length}|${last?.text.length ?? 0}|${last?.toolCall ? 1 : 0}|${last?.navCard ? 1 : 0}|${last?.error ? 1 : 0}|${last?.clarify ? 1 : 0}|${last?.sqlResult ? 1 : 0}`
 })
 
 watch(tail, async () => {
