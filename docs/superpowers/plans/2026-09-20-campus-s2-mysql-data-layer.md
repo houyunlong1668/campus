@@ -2243,3 +2243,30 @@ git commit -m "test(contract): 页面与 /api/* 一一对应、迁移文件双�
 6. 越权用例 A7/A8 仍成立（`/api/*` 无 Cookie → 401；请求体带 `student_id` 无处可传，端点无请求体）。
 7. 后端 `uv run pytest -q`、前端 `npx vitest run`、`npm run build`、`python scripts/check_routes_contract.py` 全绿；`git status` 干净。
 8. 语义视图 `v_grades` 等与 `agent_ro` 的视图授权**不在 S2**（属 S3 的 `0002_semantic_views.sql`），此处 `agent_ro` 对 `campus` 零权限是 S3 的起点。
+
+---
+
+## 执行结果（2026-09-21 收尾，逐条实测）
+
+> **状态：Task 1–7 全部 complete，终审（全分支）通过，终审修复波已落地。** 分支 `campus-s2`，17 个提交，工作树干净。逐任务裁决与延后项见 `.superpowers/sdd/2026-09-20-campus-s2-mysql-data-layer/progress.md`。
+
+| # | 判据 | 实测结果 |
+|---|---|---|
+| 1 | mysql healthy / `deploy/.env` 未跟踪 | ✅ MySQL 8.4.11 healthy；`deploy/.env` 与 `backend/data/*.db` 均未被跟踪（`git check-ignore` 命中） |
+| 2 | `agent_ro` 读 `campus.enrollments` → ERROR 1142 | ✅ `ERROR 1142 (42000)` |
+| 3 | 迁移幂等（二次 `[]`） | ✅ `test_迁移按序应用且幂等`；`init_sqlite` 复用同一库两次启动不重复建表 |
+| 4 | 双方言四端点 JSON 全等 | ✅ 四份 JSON 经 `cmp` 全部 `SAME`（`term` 排序已改 ASCII 列 `course_code`，见提交 `d54d67f`） |
+| 5 | 四页三态 + `seed.ts` 无业务数据 | ✅ vitest 20 passed；`rg` 确认 `seed.ts` 无业务数据（退成展示常量） |
+| 6 | 越权 A7/A8 | ✅ `/api/*` 无 Cookie → 401；四端点无请求体，`student_id` 无处可传 |
+| 7 | 全绿 + `git status` 干净 | ✅ backend `81 passed`、frontend `20 passed` + build 绿、契约脚本 3 OK/exit 0、`git status` 干净 |
+| 8 | 视图授权不在 S2 | ✅ 未做，`agent_ro` 对 `campus` 零权限作为 S3 起点 |
+
+**终审新增（超出原判据，属必修）**：
+
+- 启动期探测遗留 `conversations` 形状并拒绝启动（`assert_current_schema` + `LegacySchemaError`，提交 `7115547`）——原计划只靠"本地起服务前手工删库"，漏了 MySQL 旧卷路径，`/health` 会全绿而 `/chat` 逐条 500。
+- `DoneEvent` 字段更正为 `conversation_id: number | null`，与 SSE `done` 帧一致（`d54d67f`）。
+- `MySQLDatabase` 传 `args or None`，避免空元组触发 pymysql 的 `%` 格式化（`d54d67f`）。
+
+**注意（环境）**：裸 `python` 在本机解析到 Windows Store 占位程序（无输出、exit 49）；跑 `scripts/check_routes_contract.py` 必须用 `backend/.venv/Scripts/python.exe`。容器端口 `3307` 在 WSL 空闲回收后可能只剩 `::1` 可达，`.env` 已注明临时改 `MYSQL_HOST=::1`。
+
+**延后到 S3（已记账）**：MySQL 侧缺 FOREIGN KEY（spec 5.1 偏差，需 `0002` 迁移）；`record_exchange` 三 INSERT 无共享事务；`save_row` 每行两趟往返；`_get_pool` 并发首调竞态；五页重复的 `.state-*` 外壳（可收成 `StateShell.vue`）；契约脚本只扫 `academic.py` 单文件。
