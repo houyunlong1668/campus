@@ -93,11 +93,11 @@ REVOKE ALL PRIVILEGES ON campus.* FROM 'agent_ro'@'%';
 FLUSH PRIVILEGES;
 ```
 
-创建 `deploy/.env`（本地仿真，值可以弱但**不得入库**；`.gitignore` 的 `.env`/`.env.*` 规则已覆盖）：
+创建 `deploy/.env`（本地仿真，值可以弱但**不得入库**；`.gitignore` 的 `.env`/`.env.*` 规则已覆盖）。
+直接从 example 派生即可，真实值只留在本机那个文件里，本文件不记录：
 
 ```bash
-MYSQL_ROOT_PASSWORD=root-local-dev
-AGENT_RO_PASSWORD=agent-ro-local
+cp deploy/.env.example deploy/.env    # 内容是 change-* 占位符，本地仿真可原样用
 ```
 
 - [x] **Step 3: 起库并等 healthy**
@@ -120,13 +120,16 @@ wsl bash -lc "cd /mnt/c/Users/houyunlong/Desktop/campusProject && \
 
 - [x] **Step 4: 执行锁死并验证 agent_ro 最小权限**
 
+下面两处 `-p<值>` 需替换成本机 `deploy/.env` 里的对应值（`MYSQL_ROOT_PASSWORD` 与
+`AGENT_RO_PASSWORD`）——真实密码不写进本文件：
+
 ```bash
 wsl bash -lc "cd /mnt/c/Users/houyunlong/Desktop/campusProject && \
   docker compose --env-file deploy/.env -f deploy/docker-compose.yml exec -T mysql \
-  mysql -uroot -proot-local-dev campus < deploy/mysql/lockdown_agent_ro.sql"
+  mysql -uroot -p<MYSQL_ROOT_PASSWORD> campus < deploy/mysql/lockdown_agent_ro.sql"
 wsl bash -lc "cd /mnt/c/Users/houyunlong/Desktop/campusProject && \
   docker compose --env-file deploy/.env -f deploy/docker-compose.yml exec -T mysql \
-  mysql -uagent_ro -pagent-ro-local -e 'SELECT 1; SHOW DATABASES;'"
+  mysql -uagent_ro -p<AGENT_RO_PASSWORD> -e 'SELECT 1; SHOW DATABASES;'"
 ```
 
 Expected: `SELECT 1` 返回 1；`SHOW DATABASES` 只有 `information_schema` 与 `performance_schema`——`campus` 都不可见。若能看到 campus 或任何业务表，锁死失败，停查。
@@ -401,14 +404,15 @@ def build_database(settings) -> Database:
     mysql_database: str = "campus"
 ```
 
-同时往 `backend/.env`（gitignored）追加这几行——日常开发先走 sqlite，真库冒烟时改 `DB_BACKEND=mysql`：
+同时往 `backend/.env`（gitignored）追加这几行——日常开发先走 sqlite，真库冒烟时改 `DB_BACKEND=mysql`。
+`MYSQL_PASSWORD` 填本机 `deploy/.env` 里的 `MYSQL_ROOT_PASSWORD`（两边必须一致），此处不记录真值：
 
 ```bash
 DB_BACKEND=sqlite
 MYSQL_HOST=127.0.0.1
 MYSQL_PORT=3307
 MYSQL_USER=root
-MYSQL_PASSWORD=root-local-dev
+MYSQL_PASSWORD=<同 deploy/.env 的 MYSQL_ROOT_PASSWORD>
 MYSQL_DATABASE=campus
 ```
 
@@ -2203,9 +2207,10 @@ Expected: 四个端点全 `SAME`。若 `credits`/`score` 出现 `87` 对 `87.0` 
 
 ```bash
 # 表已建，agent_ro 仍应被拒（spec 9.2 冒烟判据）
+# -p<值> 换成本机 deploy/.env 的 AGENT_RO_PASSWORD（真值不写进本文件）
 wsl bash -lc "cd /mnt/c/Users/houyunlong/Desktop/campusProject && \
   docker compose --env-file deploy/.env -f deploy/docker-compose.yml exec -T mysql \
-  mysql -uagent_ro -pagent-ro-local -e 'SELECT COUNT(*) FROM campus.enrollments'"
+  mysql -uagent_ro -p<AGENT_RO_PASSWORD> -e 'SELECT COUNT(*) FROM campus.enrollments'"
 wsl bash -lc "cd /mnt/c/Users/houyunlong/Desktop/campusProject && \
   docker compose --env-file deploy/.env -f deploy/docker-compose.yml ps"
 ```
