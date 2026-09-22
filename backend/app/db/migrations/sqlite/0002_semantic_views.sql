@@ -16,7 +16,7 @@ CREATE VIEW IF NOT EXISTS v_makeup (student_id, course, kind, reason, scheduled_
 
 CREATE VIEW IF NOT EXISTS v_loans (student_id, title, call_no, due_at, days_left, shelf) AS
   SELECT student_id, title, call_no, due_at,
-         CAST(julianday(due_at) - julianday('now', 'localtime') AS INTEGER),
+         CAST(julianday(date(due_at)) - julianday(date('now', 'localtime')) AS INTEGER),
          shelf
   FROM library_loans
   WHERE returned_at IS NULL;
