@@ -1,7 +1,7 @@
-# backend/tests/test_academic_api.py
 import asyncio
 import re
 import sys
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -84,13 +84,15 @@ def test_借阅含逾期且daysLeft由服务端算(client):
     _login(client, "20230001")
     items = client.get("/api/loans").json()["items"]
     assert len(items) == 4
-    # seed 把四本书放在运行日起算 +2 / -3 / +11 / +6 天：钉死具体值，_days_left 差一天就红
-    assert {i["title"]: i["daysLeft"] for i in items} == {
-        "算法导论（第三版）上册": 2,
-        "深入理解计算机系统（第 3 版）": -3,
-        "数据库系统概念（第 7 版）": 11,
-        "人类简史：从动物到上帝": 6,
-    }
+    # daysLeft 必须等于"拿响应里的应还日与今天独立重算"的天数。直接钉 {2,-3,11,6}
+    # 会在 seed 与断言跨本地零点时假红；独立重算照样抓得住 _days_left 漏掉
+    # "截到当天 0 点"的差一天 bug（20:00 应还若不截断会算出 1 而非 2）。
+    today = date.today()
+    for item in items:
+        expected = (date.fromisoformat(item["due"][:10]) - today).days
+        assert item["daysLeft"] == expected, f"{item['title']} daysLeft 与应还日不符"
+    # 同时钉住 seed 的锚点（运行日起算 +2 / -3 / +11 / +6），防止 seed 被改而无人知
+    assert sorted(i["daysLeft"] for i in items) == [-3, 2, 6, 11]
     assert any(i["daysLeft"] < 0 for i in items)
     assert all(WEEK_RE.match(i["due"]) for i in items)
     assert set(items[0]) == {"title", "callNo", "due", "daysLeft", "place"}

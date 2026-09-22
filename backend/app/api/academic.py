@@ -29,16 +29,29 @@ def _md(raw: Any) -> str:
 
 
 def _days_left(raw: Any) -> int:
-    """今天 0 点起算的剩余天数，负数为已逾期（不落冗余列，查询时算）。"""
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    return (_as_dt(raw) - today).days
+    """今天 0 点起算的剩余天数，负数为已逾期（不落冗余列，查询时算）。
+
+    astimezone() 给 0 点挂上进程真实时区：进程 tz 与会话 tz 不一致时
+    （Docker/WSL/UTC CI）裸的 datetime.now() 会整体飘一天。库里存的是
+    本地挂钟 naive 时间，按同一 tzinfo 解释后相减。
+    """
+    today = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+    due = _as_dt(raw)
+    if due.tzinfo is None:
+        due = due.replace(tzinfo=today.tzinfo)
+    return (due - today).days
 
 
 @router.get("/grades")
 async def grades(request: Request, student: Student = Depends(require_student)):
     rows = await request.app.state.db.fetch_all(
         "SELECT course_name, course_code, credits, score, term FROM enrollments"
-        " WHERE student_id = ? ORDER BY term, course_name", (student.student_id,))
+        # 只按 ASCII 列排：course_name 是中文，SQLite 比 UTF-8 字节而 MySQL 比
+        # utf8mb4_0900_ai_ci，同分并列时两边顺序可能不同，双后端"逐字段一致"
+        # 就会变成巧合。course_code 在同一学期内唯一，排序是全序。
+        # （term 值形如 '2025 秋'，前四位数字已决定先后，中文后缀不参与比较。）
+        " WHERE student_id = ? ORDER BY term, course_code",
+        (student.student_id,))
     return {"grades": [{"name": r["course_name"], "code": r["course_code"],
                         "credits": r["credits"], "score": r["score"],
                         "term": r["term"]} for r in rows]}

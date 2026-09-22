@@ -59,19 +59,23 @@ class MySQLDatabase:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cur:
-                await cur.execute(to_mysql_placeholders(sql), args)
+                # args 为 None 时 pymysql 才跳过 % 格式化；空元组不是 None，
+                # 会让含字面 % 的语句（如 LIKE '%高等数学%'）炸或错绑 %s 占位符。
+                await cur.execute(to_mysql_placeholders(sql), args or None)
                 return list(await cur.fetchall())
 
     async def execute(self, sql: str, args: Sequence[Any] = ()) -> int:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute(to_mysql_placeholders(sql), args)
+                await cur.execute(to_mysql_placeholders(sql), args or None)
                 return cur.lastrowid or 0
 
     async def execute_script(self, sql: str) -> None:
-        # 迁移 DDL 不含存储过程/函数，按分号切分即可（spec 6.3 的单文件一事务
-        # 由迁移器在脚本外包裹保证：脚本内每条自动提交，失败即抛出让本文件版本不入账）。
+        # 迁移 DDL 不含存储过程/函数，按分号切分即可。注意：这里**没有**单文件事务
+        # ——连接是 autocommit，语句逐条提交，中途失败会留下"半套 schema 且版本未入账"。
+        # 当前迁移全是 CREATE TABLE IF NOT EXISTS，重跑自愈；将来写 ALTER/数据迁移
+        # 必须自己保证幂等，或先给协议加事务原语。
         for stmt in (s.strip() for s in sql.split(";")):
             if stmt:
                 await self.execute(stmt)

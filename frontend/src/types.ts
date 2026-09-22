@@ -20,7 +20,7 @@ export interface ToolCallEvent {
 
 export interface TokenEvent { text: string }
 export interface NavCardEvent { path: string; title: string; reason: string }
-export interface DoneEvent { message_id: string; steps: string[]; session_id: string }
+export interface DoneEvent { message_id: string; steps: string[]; conversation_id: number | null }
 export interface ErrorEvent { code: string; message: string }
 
 export interface NavCard {

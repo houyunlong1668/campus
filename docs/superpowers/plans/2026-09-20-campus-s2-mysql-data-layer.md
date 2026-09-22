@@ -40,7 +40,7 @@
 
 > **状态：本任务已于 2026-09-20 执行完毕**（deploy 文件见提交 `31c8cda`；MySQL 8.4.11 healthy、`agent_ro` 已锁到对 `campus` 零权限）。下面的勾即当时的实测判据，复跑可验证。
 >
-> **Task 3 复审时的更正（重要）**：宿主机 `127.0.0.1:3306` 上跑着一个**非本项目的原生 mysqld**（Windows 服务），compose 容器实际只在 `[::1]:3306` 被 wslrelay 接管——本任务 Step 5 当初看到的 `TCP_OK` 是那个外来 mysqld，不是我们的容器（判据本身写错了对象）。已把 compose 改为发布 `3307:3306`，`backend/.env` 相应写 `MYSQL_PORT=3307`；不要去停那个外来服务。另外 WSL 空闲会回收容器，compose 已加 `restart: unless-stopped`，长任务前仍应先 `wsl docker start deploy-mysql-1` 再验证 healthy。
+> **Task 3 复审时的更正（重要）**：宿主机 `127.0.0.1:3306` 上跑着一个**非本项目的原生 mysqld**（Windows 服务），compose 容器实际只在 `[::1]:3306` 被 wslrelay 接管——本任务 Step 5 当初看到的 `TCP_OK` 是那个外来 mysqld，不是我们的容器（判据本身写错了对象）。已把 compose 改为发布 `3307:3306`，`backend/.env` 相应写 `MYSQL_PORT=3307`；不要去停那个外来服务。另外 WSL 空闲会回收容器，compose 已加 `restart: unless-stopped`，长任务前仍应先 `wsl docker start campus-mysql` 再验证 healthy（compose 已固定 `container_name: campus-mysql`；`down -v` 或删卷后必须重跑 `deploy/mysql/lockdown_agent_ro.sql`，因为 `MYSQL_USER` 会在空卷上重新授予 `agent_ro` 对 `campus.*` 的全部权限）。
 
 > **环境结论（2026-09-20 实测，取代 spec 6.1 的 install.sh 路线）**：Windows 侧 docker CLI 走 2375 且未监听；按用户决策**不再配置 2375**，所有 docker 操作都在 WSL 内执行（Git Bash 里以 `wsl docker ...` 或 `wsl bash -lc "cd /mnt/c/... && docker compose ..."` 调用）。WSL 内 daemon 原生可达（实测 29.7.2）。
 
