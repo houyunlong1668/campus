@@ -175,13 +175,13 @@ git commit -m "feat(deploy): mysql 8.4 compose、agent_ro 最小权限锁死脚�
   - 建表后的库形状：`students / courses / enrollments / course_sections / makeup_items / library_loans / conversations(id, student_id, created_at) / messages / tool_calls / schema_version`
 - 后续 Task 3 消费 `init_sqlite`/`build_database`/`run_migrations`；Task 5 消费表形状。
 
-- [ ] **Step 1: 加 aiomysql 依赖**
+- [x] **Step 1: 加 aiomysql 依赖**
 
 `backend/pyproject.toml` 的 `dependencies` 列表在 `"aiosqlite>=0.20",` 后加一行 `"aiomysql>=0.2",`。
 
 Run: `cd backend && uv sync` — Expected: 锁文件更新成功，`uv run python -c "import aiomysql"` 无报错。
 
-- [ ] **Step 2: 写失败测试**
+- [x] **Step 2: 写失败测试**
 
 ```python
 # backend/tests/test_database.py
@@ -258,12 +258,12 @@ def test_MySQLDatabase_构造即记录方言与连接参数_不真正连接():
     assert db.host == "127.0.0.1" and db.database == "campus"
 ```
 
-- [ ] **Step 3: 跑测试确认失败**
+- [x] **Step 3: 跑测试确认失败**
 
 Run: `cd backend && uv run pytest tests/test_database.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'app.db.base'`
 
-- [ ] **Step 4: 写实现**
+- [x] **Step 4: 写实现**
 
 `backend/app/db/base.py`：
 
@@ -416,7 +416,7 @@ MYSQL_PASSWORD=<同 deploy/.env 的 MYSQL_ROOT_PASSWORD>
 MYSQL_DATABASE=campus
 ```
 
-- [ ] **Step 5: 写双方言迁移文件**
+- [x] **Step 5: 写双方言迁移文件**
 
 `backend/app/db/migrations/sqlite/0001_init.sql`：
 
@@ -618,7 +618,7 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
-- [ ] **Step 6: 写迁移器**
+- [x] **Step 6: 写迁移器**
 
 ```python
 # backend/app/db/migrations.py
@@ -665,12 +665,12 @@ async def init_sqlite(path: Path) -> Database:
     return db
 ```
 
-- [ ] **Step 7: 跑测试确认通过**
+- [x] **Step 7: 跑测试确认通过**
 
 Run: `cd backend && uv run pytest tests/test_database.py -v`
 Expected: 7 passed
 
-- [ ] **Step 8: 全量回归 + 提交**
+- [x] **Step 8: 全量回归 + 提交**
 
 Run: `cd backend && uv run pytest -q`
 Expected: 全绿（本任务只新增，不改旧行为）
@@ -699,7 +699,7 @@ git commit -m "feat(db): Database 双驱动协议、?→%s 转换与双方言极
   - `build_repository(db: Database) -> ConversationRepository`；`record_exchange` 签名不变，但 `conversations` 插入只剩 `student_id` 一列
   - `app.state.db`（lifespan 挂出，端点与后续任务直接用）
 
-- [ ] **Step 1: 改学生仓储**
+- [x] **Step 1: 改学生仓储**
 
 `backend/app/auth/students.py`：删去全部函数内的 `import aiosqlite` 与自开连接；`SqliteStudentRepository` 更名 `DbStudentRepository`，`__init__(self, db: Database)`；三个方法体改为：
 
@@ -730,15 +730,15 @@ git commit -m "feat(db): Database 双驱动协议、?→%s 转换与双方言极
 
 `build_student_repository(path: Path)` → `build_student_repository(db: Database)`，返回 `DbStudentRepository(db)`；`seed_students(path)` → `seed_students(db)`，循环体不变。文件头 import 改为 `from ..db.base import Database`。
 
-- [ ] **Step 2: 改会话仓储**
+- [x] **Step 2: 改会话仓储**
 
 `backend/app/db/repository.py`：`SqliteConversationRepository(path)` → `DbConversationRepository(db)`；`record_exchange` 里 `INSERT INTO conversations(student_id, session_id) VALUES (?,?)` 改为 `INSERT INTO conversations(student_id) VALUES (?)`，参数只传 `student_id`，并删掉上方那段"session_id 列暂与 student_id 同值"注释；`build_repository(path)` → `build_repository(db)`。
 
-- [ ] **Step 3: 删旧引擎**
+- [x] **Step 3: 删旧引擎**
 
 `git rm backend/app/db/engine.py`。全仓搜 `from app.db.engine import` / `from .db.engine import`，只剩测试 fixture 里的引用（下一步改）。
 
-- [ ] **Step 4: 改 lifespan**
+- [x] **Step 4: 改 lifespan**
 
 `backend/app/main.py`：
 
@@ -761,7 +761,7 @@ lifespan 内替换：
 
 （`init_db`/`seed_students(settings.sqlite_path)` 两行删除；`app.state.settings = settings` 保留。）
 
-- [ ] **Step 5: 改四个测试文件的 fixture**
+- [x] **Step 5: 改四个测试文件的 fixture**
 
 统一模式——`backend/tests/test_students.py`、`test_auth_api.py`、`test_chat_auth.py`、`test_repository.py` 里：
 
@@ -774,12 +774,12 @@ from app.db.migrations import init_sqlite
 - `build_repository(path)` → `build_repository(db)`
 - fixture 里不再把 `path` 传给仓储；`test_repository.py` 里直读库校验的部分把 `aiosqlite.connect(path)` 换成 `db.fetch_all(...)`（行断言不变，取 `r["student_id"]` 等键）。
 
-- [ ] **Step 6: 全量回归**
+- [x] **Step 6: 全量回归**
 
 Run: `cd backend && uv run pytest -q`
 Expected: 全绿。若有 `no such column: session_id` 之外的方言错，停查。
 
-- [ ] **Step 7: 删除旧开发库并手测起服务（sqlite 模式）**
+- [x] **Step 7: 删除旧开发库并手测起服务（sqlite 模式）**
 
 ```bash
 rm -f backend/data/campus.db
@@ -788,7 +788,7 @@ cd backend && uv run uvicorn app.main:app --port 8000
 
 另开终端：`curl -s http://localhost:8000/health` → `{"status":"ok"}`；`curl -s -X POST http://localhost:8000/auth/login -H 'Content-Type: application/json' -d '{"student_id":"20230001","password":"demo1234"}'` → 200。Ctrl+C 停掉。
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add backend/
@@ -807,7 +807,7 @@ git commit -m "refactor(db): 仓储与 lifespan 迁到 Database 协议，convers
 - Consumes: `build_database`/`run_migrations`/`init_sqlite`（Task 2）、`hash_password`（S1）
 - Produces: `async def seed_academic(db: Database) -> dict[str, int]`（返回 `{"students": 3, "courses": 36, "enrollments": 32, "course_sections": 30, "makeup_items": 3, "library_loans": 7}` 这类计数，便于测试与冒烟断言）；`python scripts/seed_academic.py` 可直接运行（读 `backend/.env` 选后端，sqlite 模式自动建父目录）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 # backend/tests/test_seed_academic.py
@@ -865,12 +865,12 @@ async def test_seed_日期是真日期_且相对灌库日推导(tmp_path):
         assert r["due_at"].count("-") == 2 and ":" in r["due_at"]
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd backend && uv run pytest tests/test_seed_academic.py -v`
 Expected: FAIL — `No module named 'seed_academic'`
 
-- [ ] **Step 3: 写 seed 脚本**
+- [x] **Step 3: 写 seed 脚本**
 
 数据设计（spec 5.2 逐条对齐）：**20230001 周晓楠**承接现前端 seed 全量——12 门在读课程（课表）、12 条历学期成绩（含 56 分大物上、0 分体育一）、3 条补考重修、4 本在借（含 1 本逾期）；**20230002 陈默**建筑学，6 门课、6 条成绩全及格、0 补考、2 本在借；**20230007 林知远**计科，课表与周晓楠完全相同，成绩同名课程不同分、全及格、0 补考、1 本在借。
 
@@ -1125,12 +1125,12 @@ if __name__ == "__main__":
 
 （`students`/`courses`/`enrollments` 有主键或唯一键，走 UPSERT；这三个表是"个人当前态"，全量替换语义正确。测试里的幂等断言因此成立。）
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd backend && uv run pytest tests/test_seed_academic.py -v`
 Expected: 2 passed
 
-- [ ] **Step 5: 命令行灌 sqlite 验证**
+- [x] **Step 5: 命令行灌 sqlite 验证**
 
 ```bash
 rm -f backend/data/campus.db
@@ -1138,7 +1138,7 @@ cd backend && uv run python ../scripts/seed_academic.py
 # 期望：seed 完成（sqlite）: {'students': 3, 'courses': 36, 'enrollments': 32, 'course_sections': 30, 'makeup_items': 3, 'library_loans': 7}
 ```
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add scripts/seed_academic.py backend/tests/test_seed_academic.py
@@ -1163,7 +1163,7 @@ git commit -m "feat(seed): 三账号异构教务数据脚本，相对运行日�
   - `GET /api/loans` → `{"items": [{"title","callNo","due","daysLeft","place"}]}`
   - 四端点均 `Depends(require_student)`，未登录 401
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 # backend/tests/test_academic_api.py
@@ -1272,12 +1272,12 @@ def test_同名课程分数按人隔离(client):
     assert lin["score"] == 93  # 周晓楠同门课是 87
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd backend && uv run pytest tests/test_academic_api.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'app.api.academic'`
 
-- [ ] **Step 3: 写端点**
+- [x] **Step 3: 写端点**
 
 ```python
 # backend/app/api/academic.py
@@ -1379,12 +1379,12 @@ async def loans(request: Request, student: Student = Depends(require_student)):
 
 `backend/app/main.py`：import 加 `from .api.academic import router as academic_router`；在 `app.include_router(chat_router)` 之后加 `app.include_router(academic_router)`。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd backend && uv run pytest tests/test_academic_api.py -v`
 Expected: 7 passed
 
-- [ ] **Step 5: 全量回归 + 提交**
+- [x] **Step 5: 全量回归 + 提交**
 
 Run: `cd backend && uv run pytest -q`
 Expected: 全绿
@@ -1410,7 +1410,7 @@ git commit -m "feat(api): /api/grades|schedule|makeup|loans 四端点从库读�
 - Consumes: Task 5 的四个端点响应形状（逐字一致）
 - Produces: `useResource<T>(url) -> { data: Ref<T|null>, loading: Ref<boolean>, error: Ref<string>, reload(): Promise<void> }`，`data`/`loading`/`error`/`reload` 是后续各页唯一的数据入口
 
-- [ ] **Step 1: 代理与类型**
+- [x] **Step 1: 代理与类型**
 
 `frontend/vite.config.ts` 的 proxy 对象加一行 `'/api': 'http://localhost:8000',`。
 
@@ -1474,7 +1474,7 @@ export interface LoanItem {
 }
 ```
 
-- [ ] **Step 2: seed.ts 收缩成展示常量**
+- [x] **Step 2: seed.ts 收缩成展示常量**
 
 `frontend/src/data/seed.ts` 整文件替换为下面内容。**删掉**的是：`student`（拆成 `termMeta`）、`courses`、`grades`、`makeup`、`loans`、`libraryStats`（改名 `libraryMeta`）、`gpa`/`creditsDone`/`failedCount` 三个常量、`GradeRow`/`CourseEntry`/`MakeupItem`/`LoanItem`/`Domain`/`DOMAIN_LABELS` 六个类型与常量（迁到 `types.ts`）、`fromToday`/`stamp`（日期格式化已由 Task 5 的 `_stamp` 在服务端做）。**保留** `md`——`TimetableGrid` 用它把"周一"落到具体日期，属展示逻辑而非业务数据。
 
@@ -1602,7 +1602,7 @@ export function nextUp(courses: CourseEntry[]): { course: CourseEntry; period: P
 import type { CourseEntry, GradeRow } from '../types'
 ```
 
-- [ ] **Step 3: 写 useResource 失败测试**
+- [x] **Step 3: 写 useResource 失败测试**
 
 ```ts
 // frontend/tests/useResource.test.ts
@@ -1677,7 +1677,7 @@ describe('useResource', () => {
 
 Run: `cd frontend && npx vitest run tests/useResource.test.ts` → Expected: FAIL（模块不存在）
 
-- [ ] **Step 4: 写 useResource**
+- [x] **Step 4: 写 useResource**
 
 ```ts
 // frontend/src/composables/useResource.ts
@@ -1724,7 +1724,7 @@ export function useResource<T>(url: string): Resource<T> {
 
 Run: `cd frontend && npx vitest run tests/useResource.test.ts` → Expected: 5 passed
 
-- [ ] **Step 5: TimetableGrid 去掉 seed 依赖**
+- [x] **Step 5: TimetableGrid 去掉 seed 依赖**
 
 `frontend/src/components/TimetableGrid.vue` 的 `<script setup>` 三处改动：
 
@@ -1753,7 +1753,7 @@ const live = computed(() => nowPeriod(shown.value))
 - `ScheduleView.vue`：已是 `:items="shown"`，不动。
 - `HomeView.vue`：`<TimetableGrid v-if="agenda.length" :days="[jsDay]" :items="agenda" detailed class="today" />`（加 `:items="agenda"`）。
 
-- [ ] **Step 6: 三态外壳（四个教务页共用同一段）**
+- [x] **Step 6: 三态外壳（四个教务页共用同一段）**
 
 每页在 `<div class="page-body">` 之后紧跟插入下面这段，并把该页原有区块整体包进 `<template v-else>`。样式在每页 `<style scoped>` 末尾追加同一份 `.state-*` 规则（复制即可，四页一致）。
 
@@ -1819,7 +1819,7 @@ const live = computed(() => nowPeriod(shown.value))
 }
 ```
 
-- [ ] **Step 7: 四页各自的 `<script setup>`**
+- [x] **Step 7: 四页各自的 `<script setup>`**
 
 `GradesView.vue` 整段替换 `<script setup>`（模板里 `student.semester` → `termMeta.semester`、`student.creditsRequired` → `termMeta.creditsRequired`、`student.week` → `termMeta.week`；`<style>` 不动，另在成绩表为空时于 `<template v-else>` 内首个位置插入空态）：
 
@@ -1959,7 +1959,7 @@ function dayLabel(d: number): string {
     </div>
 ```
 
-- [ ] **Step 8: HomeView 改读四个端点**
+- [x] **Step 8: HomeView 改读四个端点**
 
 `frontend/src/views/HomeView.vue` 的 `<script setup>` 整段替换。三处行为修正：`makeup[0]` 之前必须判空（陈默、林知远都没有补考项）；`gpa`/`creditsDone` 由常量变函数；四个请求任一在途即骨架、任一失败即错误条：
 
@@ -2089,7 +2089,7 @@ import { termMeta } from './data/seed'
 
 模板里 `第 {{ student.week }} 周 / 共 {{ student.totalWeeks }} 周` → `第 {{ termMeta.week }} 周 / 共 {{ termMeta.totalWeeks }} 周`。
 
-- [ ] **Step 9: 前端全量验证**
+- [x] **Step 9: 前端全量验证**
 
 ```bash
 cd frontend && npx vitest run && npm run build
@@ -2100,7 +2100,7 @@ Expected: vitest 全绿（含既有 sse/useAuth/useChatStream 三组）；`vue-t
 Run: `cd frontend && rg "data/seed" src -n`
 Expected: 只剩 `periods`/`weekdays`/`points`/`gpaOf`/`creditsDoneOf`/`termMeta`/`libraryMeta`/`md`/`nowPeriod`/`todayCourses`/`nextUp` 这些展示符号的 import，无任何业务数据 import。
 
-- [ ] **Step 10: 端到端手测**
+- [x] **Step 10: 端到端手测**
 
 ```bash
 cd backend && rm -f data/campus.db && DB_BACKEND=sqlite uv run python ../scripts/seed_academic.py && DB_BACKEND=sqlite uv run uvicorn app.main:app --port 8000
@@ -2116,7 +2116,9 @@ cd frontend && npm run dev
 6. 退出后用 20230002 登录 → 四页全换成建筑学数据，补考页显示空态，借阅 2 本。
 7. 停掉后端再刷新任一页 → 出现错误条与"重试"，重启后端后点"重试"能恢复。
 
-- [ ] **Step 11: 提交**
+> **执行时的偏离（如实记账）**：20230001 账号的第 1–5 项是在浏览器里逐条走完的；走第 6 项（切 20230002）时浏览器会话被重置回 `about:blank`，随后两个 dev server 也停了，于是第 6、7 项改用 API 级验证（`curl` 断言四端点返回建筑学数据、补考空、借 2 本）与 `useResource` 的 401/500/异常三态单测来覆盖，**没有**再回到浏览器点"重试"。这条勾表示"该步的验收目标已达成"，不是"7 项全部在浏览器里过了一遍"。若要严格的 UI 回归，S3 收口时用 Playwright 补。
+
+- [x] **Step 11: 提交**
 
 ```bash
 git add frontend/
@@ -2135,7 +2137,7 @@ git commit -m "feat(front): 四页与首页改读 /api/*，seed.ts 退成展示�
 - Consumes: Task 5 的 `app/api/academic.py` 路由声明、Task 2 的两个方言迁移目录、Task 1 的 mysql 容器
 - Produces: `python scripts/check_routes_contract.py` 三条 OK 行；S2 验收判据的可复跑命令序列
 
-- [ ] **Step 1: 扩契约脚本**
+- [x] **Step 1: 扩契约脚本**
 
 `scripts/check_routes_contract.py` 在 `print(f"OK: PAGE_REGISTRY ...")` 之前插入两段检查（沿用该脚本既有的 `ROOT` 与 `sys.exit(1)` 风格）：
 
@@ -2171,7 +2173,7 @@ print(f"OK: 迁移文件双方言同名 {len(mysql_files)} 个")
 Run: `python scripts/check_routes_contract.py`
 Expected: 三行 OK（原有的 PAGE_REGISTRY/router 对应 + 新增两条）。`backend/tests/test_contract.py` 已经在跑这个脚本，`uv run pytest tests/test_contract.py -q` 应随之变绿。
 
-- [ ] **Step 2: 双后端 JSON 逐字段一致**
+- [x] **Step 2: 双后端 JSON 逐字段一致**
 
 ```bash
 # sqlite 侧
@@ -2203,7 +2205,7 @@ Expected: 四个端点全 `SAME`。若 `credits`/`score` 出现 `87` 对 `87.0` 
 
 收尾：`kill` 掉两个 uvicorn（或 `Ctrl+C`），别让 8100/8200 悬着。
 
-- [ ] **Step 3: 真库判据复跑**
+- [x] **Step 3: 真库判据复跑**
 
 ```bash
 # 表已建，agent_ro 仍应被拒（spec 9.2 冒烟判据）
@@ -2217,7 +2219,7 @@ wsl bash -lc "cd /mnt/c/Users/houyunlong/Desktop/campusProject && \
 
 Expected: 第一条 `ERROR 1142 ... SELECT command denied to user 'agent_ro'@'%' for table 'enrollments'`；第二条 STATUS 含 `(healthy)`。
 
-- [ ] **Step 4: 全量回归与工作区洁净**
+- [x] **Step 4: 全量回归与工作区洁净**
 
 ```bash
 cd backend && uv run pytest -q
@@ -2227,7 +2229,7 @@ cd .. && git status --short
 
 Expected: 后端全绿（含 test_database / test_seed_academic / test_academic_api / test_contract 四组新增）；前端全绿且 build 成功；`git status` 里 `deploy/.env`、`backend/.env`、`backend/data/*.db` 均不出现（已被 .gitignore 覆盖）。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add scripts/check_routes_contract.py
