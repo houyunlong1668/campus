@@ -55,7 +55,19 @@ if [ "$ready" -ne 1 ]; then
 fi
 
 # 契约：k6 的退出码（阈值违反 = 99）由 trap 原样带出。
-# 这里先 cd 进 k6/tests 再用相对路径：k6 是 Windows 原生 exe，直接传
-# `/c/Users/...` 这种 POSIX 路径要靠 MSYS 自动转换，能出岔子；相对路径不经过它。
+# `k6 run` 只接受一个脚本——多传一个就报
+#   accepts 1 arg(s), received 2
+# 并退 127。所以逐个文件跑，任一失败就把它第一个非零码带出去。
+# 先 cd 进 k6/tests 再用相对路径：k6 是 Windows 原生 exe，直接传 `/c/Users/...`
+# 这种 POSIX 路径要靠 MSYS 自动转换，能出岔子；相对路径不经过它。
 cd "$ROOT/k6/tests"
-K6_BASE_URL="http://127.0.0.1:$PORT" k6 run ./*.js
+rc=0
+for f in ./*.js; do
+  echo ""
+  echo "=== k6 run $f ==="
+  K6_BASE_URL="http://127.0.0.1:$PORT" k6 run "$f" || {
+    one=$?
+    if [ "$rc" -eq 0 ]; then rc=$one; fi
+  }
+done
+exit "$rc"
