@@ -10,7 +10,17 @@ const routes = [
   { path: "/library", component: () => import('../views/LibraryView.vue') },
 ]
 
-const router = createRouter({ history: createWebHistory(), routes })
+// scrollBehavior：换页显式回到顶部。不写它的话，上一页滚到中部再跳新页
+// 会停在半截——视口落在新页中段，看起来也是"抖"。只在路径真变了才回顶，
+// 否则同路径带 query（如 /login?next=…）也会被拽回顶部。
+const router = createRouter({
+  history: createWebHistory(),
+  routes,
+  scrollBehavior(to, from) {
+    if (to.path === from.path) return false
+    return { top: 0 }
+  },
+})
 
 router.beforeEach(async (to) => {
   const { status, bootstrap } = useAuth()

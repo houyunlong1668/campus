@@ -63,6 +63,14 @@
 .d-hum  { --c: var(--d-hum);  --c-soft: rgba(107, 99, 40, 0.14); }
 .d-lab  { --c: var(--d-lab);  --c-soft: rgba(123, 63, 94, 0.12); }
 
+/* 滚动条固定槽位：短页（无滚动条）与长页（有滚动条）视口宽度必须一致，
+   否则切页时宽度差约 17px，整页内容横向位移 —— 就是用户看到的抖动。
+   out-in 过渡期间旧页已退出、新页还没进场，滚动条会短暂消失再出现，
+   有这条槽位它就不再时有时无。老 Safari 不认这个属性，会退回原行为（无害）。 */
+html {
+  scrollbar-gutter: stable;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -225,6 +233,47 @@ a {
 .ledger .num,
 .ledger .code {
   white-space: nowrap;
+}
+
+/* 三态切换（骨架 ↔ 真实内容）：新节点插入即淡入。
+   刻意用纯 CSS 而非 <Transition>——v-else 里的内容是多根元素
+   （<header> + <section> 并列），Transition 只能包单根，硬包就得加
+   包装 div，而 ScheduleView 的 .page-body（gap 18px）与 HomeView 的
+   .home（gap 34px）是 flex，中间塞一层会把 gap 断掉、布局就变了。
+   这里只要进场：旧节点本就瞬间卸载，新节点从 0.4 淡到 1、不从 0 起，
+   所以不会出现"先空一下再出现"的闪白。 */
+.page-body > *,
+.home > * {
+  animation: state-in 0.14s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+@keyframes state-in {
+  from {
+    opacity: 0.4;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 路由切换：旧页淡出、新页带 6px 上移淡入。out-in 保证两页不同时在场
+   （同时在场会双倍高度 → 又是一种抖）；.page 是 flex:1，过渡期间高度
+   不塌。下面的 reduced-motion 全局规则会把这两个过渡一并关掉。 */
+.page-enter-active,
+.page-leave-active {
+  transition: opacity 0.16s cubic-bezier(0.2, 0.7, 0.3, 1),
+    transform 0.16s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.page-leave-to {
+  opacity: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

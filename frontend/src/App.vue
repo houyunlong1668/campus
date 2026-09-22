@@ -69,7 +69,13 @@ const todayLabel = computed(() => {
     </nav>
 
     <main class="page">
-      <RouterView />
+      <!-- 原来是裸 <RouterView />，切页是硬切：旧页瞬间消失、新页瞬间出现。
+           out-in 让旧页先退新页再进，两页不同时在场（否则高度翻倍也是抖）。 -->
+      <RouterView v-slot="{ Component }">
+        <Transition name="page" mode="out-in">
+          <component :is="Component" />
+        </Transition>
+      </RouterView>
     </main>
 
     <footer class="foot" v-if="!isLogin">
