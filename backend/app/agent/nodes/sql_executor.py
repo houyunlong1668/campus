@@ -26,12 +26,27 @@ async def sql_executor_node(state, registry: ToolRegistry,
     if state.get("tool_name") == "resolve_page":
         nav = await registry.call_tool("resolve_page", state["tool_args"],
                                        student_id=state["student_id"])
+        # stdio MCP 恒返 JSON 字符串、InMemory 给 dict——与 tool_executor 同款
+        # 判别：str 才 loads；解析失败照它打成"工具返回非 JSON"，卡片自然不出。
+        if nav.ok and isinstance(nav.data, str):
+            try:
+                nav = nav.model_copy(update={"data": json.loads(nav.data)})
+            except json.JSONDecodeError:
+                nav = nav.model_copy(update={"ok": False, "error": "工具返回非 JSON"})
         tool_results["resolve_page"] = nav.model_dump()
         writer(("tool_call", {"name": "resolve_page", "args": state["tool_args"],
                               "ok": nav.ok, "error": nav.error,
                               "latency_ms": nav.latency_ms}))
 
     schema_res = await registry.call_tool("describe_schema", {})
+    # 同一套判别：MCP 给 str 就 loads 成 list/dict（否则下面 json.dumps 是
+    # 双重编码，真模型拿到一段 JSON 字符串而非结构）；失败照 tool_executor
+    # 打成工具失败，走本行既有的 [] 降级。
+    if schema_res.ok and isinstance(schema_res.data, str):
+        try:
+            schema_res = schema_res.model_copy(update={"data": json.loads(schema_res.data)})
+        except json.JSONDecodeError:
+            schema_res = schema_res.model_copy(update={"ok": False, "error": "工具返回非 JSON"})
     schema = schema_res.data if schema_res.ok else []
 
     raw_sql = await provider.generate_sql(state["user_input"], json.dumps(schema, ensure_ascii=False))

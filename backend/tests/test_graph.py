@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from app.agent.graph import build_graph
@@ -147,6 +149,27 @@ def academic_registry():
     })
 
 
+class McpShapeRegistry(InMemoryRegistry):
+    """模拟真 MCP 形态：stdio_mcp.invoke() 恒返 result.content[0].text——JSON
+    字符串（app/tools/stdio_mcp.py:48-55），而 InMemory 直接给 dict/list。
+    sql_executor 的 str→loads 解析 seam 只在真 MCP 路径暴露，旧测试全绿也
+    照不出它；这里把每个 ok 结果的 data 编码成 str，钉住真路径。"""
+
+    async def call_tool(self, name: str, args: dict,
+                        student_id: str | None = None):
+        result = await super().call_tool(name, args, student_id=student_id)
+        if result.ok and isinstance(result.data, (dict, list)):
+            result = result.model_copy(
+                update={"data": json.dumps(result.data, ensure_ascii=False)})
+        return result
+
+
+@pytest.fixture
+def mcp_shape_registry(academic_registry):
+    # 复用 academic 三件套（裁决 M 的 fake_run_sql 签名原样），只把 data 换成 str 形态
+    return McpShapeRegistry(academic_registry._tools)
+
+
 class Test三态分流:
     async def test_取数意图走query出数据而非跳转卡(self, academic_registry):
         graph = build_graph(FakeProvider(), academic_registry)
@@ -200,3 +223,32 @@ class Test澄清:
         assert second["clarification"] is None
         assert [r[1] for r in second["sql"]["rows"]] == ["2025 秋"]   # 只剩该学期
         assert second["error"] is None
+
+
+class Test真MCP路径:
+    async def test_真MCP路径_str形态_卡片与schema都正确(self, mcp_shape_registry):
+        """stdio_mcp 恒返 JSON 字符串；InMemory 直接给 dict，所以这个 seam
+        在旧测试下必然漏掉。这里用返回 str 的 registry 替身钉住真路径。"""
+        seen: dict = {}
+
+        class RecordingProvider(FakeProvider):
+            async def generate_sql(self, user_input: str, schema_json: str) -> str:
+                seen["schema_json"] = schema_json
+                return await super().generate_sql(user_input, schema_json)
+
+        graph = build_graph(RecordingProvider(), mcp_shape_registry)
+        collected, final = await run_graph(graph, "我成绩怎么样，顺便去成绩页看看")
+
+        # 1) tool_results["resolve_page"]["data"] 必须是 dict（否则 generator 不出卡片）
+        data = final["tool_results"]["resolve_page"]["data"]
+        assert isinstance(data, dict), (
+            f"resolve_page.data 必须是 dict，实为 {type(data).__name__}: {data!r}")
+        assert collected["nav_card"] is not None, "str 形态没被解析 → 规则 3 卡片丢失"
+        assert collected["nav_card"]["path"] == "/academic/grades"
+
+        # 2) 收到 generate_sql 的 schema_json 必须 json.loads() 得回 list[...]，
+        #    而不是"一段 JSON 字符串"（否则是双重编码）
+        schema = json.loads(seen["schema_json"])
+        assert isinstance(schema, list), (
+            f"schema_json 双重编码：loads 后应为 list，实为 {type(schema).__name__}")
+        assert schema and schema[0]["name"] == "v_grades"
