@@ -1,18 +1,24 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import TimetableGrid from '../components/TimetableGrid.vue'
-import { courses, DOMAIN_LABELS, periods, student, weekdays, type Domain } from '../data/seed'
+import { useResource } from '../composables/useResource'
+import { periods, termMeta, weekdays } from '../data/seed'
+import { DOMAIN_LABELS, type CourseEntry, type Domain } from '../types'
 
-const activeWeek = ref(student.week)
-const weeks = Array.from({ length: student.totalWeeks }, (_, i) => i + 1)
+const { data, loading, error, reload } = useResource<{ courses: CourseEntry[] }>('/api/schedule')
+onMounted(reload)
+
+const courses = computed(() => data.value?.courses ?? [])
+const activeWeek = ref(termMeta.week)
+watch(courses, (v) => { if (v.length && activeWeek.value > termMeta.totalWeeks) activeWeek.value = termMeta.week })
+const weeks = Array.from({ length: termMeta.totalWeeks }, (_, i) => i + 1)
 
 function inWeek(range: string, week: number): boolean {
   const [start, end] = range.split('-').map(Number)
   return week >= start && week <= (end || start)
 }
 
-const shown = computed(() => courses.filter((c) => inWeek(c.weeks, activeWeek.value)))
-
+const shown = computed(() => courses.value.filter((c) => inWeek(c.weeks, activeWeek.value)))
 const visibleDomains = computed(() =>
   (Object.keys(DOMAIN_LABELS) as Domain[]).filter((d) => shown.value.some((c) => c.domain === d)),
 )
@@ -21,9 +27,18 @@ const countOf = (d: Domain) => shown.value.filter((c) => c.domain === d).length
 
 <template>
   <div class="page-body">
+    <div v-if="loading" class="state-block" role="status">
+      <p class="state-title">正在读取教务数据…</p>
+      <div class="state-skeleton"><span /><span /><span /></div>
+    </div>
+    <div v-else-if="error" class="state-block" role="alert">
+      <p class="state-title">{{ error }}</p>
+      <button type="button" class="state-retry" @click="reload">重试</button>
+    </div>
+    <template v-else>
     <header class="head">
       <div>
-        <p class="eyebrow">{{ student.semester }}</p>
+        <p class="eyebrow">{{ termMeta.semester }}</p>
         <h1>课表查询</h1>
       </div>
       <p class="head-note">
@@ -40,13 +55,18 @@ const countOf = (d: Domain) => shown.value.filter((c) => c.domain === d).length
         :key="w"
         type="button"
         class="week"
-        :class="{ 'is-on': w === activeWeek, 'is-now': w === student.week }"
+        :class="{ 'is-on': w === activeWeek, 'is-now': w === termMeta.week }"
         :aria-pressed="w === activeWeek"
         @click="activeWeek = w"
       >{{ w }}</button>
     </div>
 
     <TimetableGrid class="grid-box" :days="[1, 2, 3, 4, 5]" :items="shown" />
+
+    <div v-if="!shown.length" class="empty">
+      <p class="empty-title">第 {{ activeWeek }} 周没有课</p>
+      <p class="empty-hint">换一周看看，或到"首页"问助手下次课是什么时候。</p>
+    </div>
 
     <!-- 图例只列本周真正出现的学科，不摆满六色当装饰 -->
     <ul class="legend">
@@ -60,6 +80,7 @@ const countOf = (d: Domain) => shown.value.filter((c) => c.domain === d).length
     <p class="foot-note">
       {{ weekdays[0] }}–{{ weekdays[4] }} 排课，周末无课。表格为仿真数据；要改选课或调课，请到教务办办理。
     </p>
+    </template>
   </div>
 </template>
 
@@ -177,5 +198,72 @@ const countOf = (d: Domain) => shown.value.filter((c) => c.domain === d).length
 .legend-count {
   font-size: 12px;
   color: var(--ink-2);
+}
+
+.empty {
+  border: 1px dashed var(--rule-2);
+  border-radius: var(--r-md);
+  padding: 34px 20px;
+  text-align: center;
+  background: var(--card);
+}
+
+.empty-title {
+  font-family: var(--display);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.empty-hint {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--faint);
+}
+
+.state-block {
+  padding: 34px 20px;
+  border: 1px dashed var(--rule-2);
+  border-radius: var(--r-md);
+  background: var(--card);
+  text-align: center;
+}
+
+.state-title {
+  font-size: 13.5px;
+  color: var(--faint);
+}
+
+.state-skeleton {
+  margin-top: 16px;
+  display: grid;
+  gap: 8px;
+}
+
+.state-skeleton span {
+  height: 12px;
+  border-radius: 2px;
+  background: var(--rule);
+}
+
+.state-skeleton span:nth-child(1) { width: 62%; }
+.state-skeleton span:nth-child(2) { width: 84%; }
+.state-skeleton span:nth-child(3) { width: 45%; }
+
+.state-retry {
+  font: inherit;
+  font-size: 13px;
+  margin-top: 14px;
+  padding: 7px 16px;
+  color: #fff;
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.state-retry:hover {
+  background: var(--seal);
+  border-color: var(--seal);
 }
 </style>

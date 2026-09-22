@@ -1,15 +1,34 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { creditsDone, failedCount, gpa, grades, points, student } from '../data/seed'
+import { computed, onMounted } from 'vue'
+import { useResource } from '../composables/useResource'
+import { creditsDoneOf, gpaOf, points, termMeta } from '../data/seed'
+import type { GradeRow } from '../types'
 
-const best = computed(() => grades.reduce((a, b) => (b.score > a.score ? b : a)))
+const { data, loading, error, reload } = useResource<{ grades: GradeRow[] }>('/api/grades')
+onMounted(reload)
+
+const grades = computed(() => data.value?.grades ?? [])
+const gpa = computed(() => gpaOf(grades.value))
+const creditsDone = computed(() => creditsDoneOf(grades.value))
+const failedCount = computed(() => grades.value.filter((g) => g.score < 60).length)
+const best = computed(() =>
+  grades.value.length ? grades.value.reduce((a, b) => (b.score > a.score ? b : a)) : null)
 </script>
 
 <template>
   <div class="page-body">
+    <div v-if="loading" class="state-block" role="status">
+      <p class="state-title">正在读取教务数据…</p>
+      <div class="state-skeleton"><span /><span /><span /></div>
+    </div>
+    <div v-else-if="error" class="state-block" role="alert">
+      <p class="state-title">{{ error }}</p>
+      <button type="button" class="state-retry" @click="reload">重试</button>
+    </div>
+    <template v-else>
     <header class="page-head">
       <div>
-        <p class="eyebrow">{{ student.semester }} · 已开放成绩 {{ grades.length }} 门</p>
+        <p class="eyebrow">{{ termMeta.semester }} · 已开放成绩 {{ grades.length }} 门</p>
         <h1>成绩查询</h1>
       </div>
       <p class="head-note">绩点为 5.0 分制：(分数 − 50) ÷ 10，90 分以上封顶 5.0</p>
@@ -21,7 +40,7 @@ const best = computed(() => grades.reduce((a, b) => (b.score > a.score ? b : a))
         <p class="gpa num">{{ gpa.toFixed(2) }}<span class="gpa-of">/ 5.0</span></p>
         <p class="gpa-note">
           已修 <span class="num">{{ creditsDone }}</span> 学分 ·
-          专业要求 <span class="num">{{ student.creditsRequired }}</span> 学分
+          专业要求 <span class="num">{{ termMeta.creditsRequired }}</span> 学分
         </p>
       </div>
       <dl class="summary-side">
@@ -31,16 +50,20 @@ const best = computed(() => grades.reduce((a, b) => (b.score > a.score ? b : a))
         </div>
         <div>
           <dt>最高分</dt>
-          <dd class="num">{{ best.score }}</dd>
+          <dd class="num">{{ best?.score ?? '—' }}</dd>
         </div>
         <div>
           <dt>在读学期</dt>
-          <dd class="num">第 {{ student.week }} 周</dd>
+          <dd class="num">第 {{ termMeta.week }} 周</dd>
         </div>
       </dl>
     </section>
 
-    <section class="panel">
+      <div v-if="!grades.length" class="empty">
+        <p class="empty-title">还没有开放的成绩</p>
+        <p class="empty-hint">成绩公布后会出现在这里。也可以问助手"我的绩点怎么样"。</p>
+      </div>
+      <section v-else class="panel">
       <table class="ledger">
         <caption>历学期成绩</caption>
         <thead>
@@ -69,6 +92,7 @@ const best = computed(() => grades.reduce((a, b) => (b.score > a.score ? b : a))
     <p class="foot-note">
       成绩如有疑义，请在成绩公布后 5 个工作日内向任课教师申请复核。补考与重修安排见「补考重修」。
     </p>
+    </template>
   </div>
 </template>
 
@@ -158,5 +182,72 @@ const best = computed(() => grades.reduce((a, b) => (b.score > a.score ? b : a))
   .gpa {
     font-size: 44px;
   }
+}
+
+.empty {
+  border: 1px dashed var(--rule-2);
+  border-radius: var(--r-md);
+  padding: 34px 20px;
+  text-align: center;
+  background: var(--card);
+}
+
+.empty-title {
+  font-family: var(--display);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.empty-hint {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--faint);
+}
+
+.state-block {
+  padding: 34px 20px;
+  border: 1px dashed var(--rule-2);
+  border-radius: var(--r-md);
+  background: var(--card);
+  text-align: center;
+}
+
+.state-title {
+  font-size: 13.5px;
+  color: var(--faint);
+}
+
+.state-skeleton {
+  margin-top: 16px;
+  display: grid;
+  gap: 8px;
+}
+
+.state-skeleton span {
+  height: 12px;
+  border-radius: 2px;
+  background: var(--rule);
+}
+
+.state-skeleton span:nth-child(1) { width: 62%; }
+.state-skeleton span:nth-child(2) { width: 84%; }
+.state-skeleton span:nth-child(3) { width: 45%; }
+
+.state-retry {
+  font: inherit;
+  font-size: 13px;
+  margin-top: 14px;
+  padding: 7px 16px;
+  color: #fff;
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.state-retry:hover {
+  background: var(--seal);
+  border-color: var(--seal);
 }
 </style>

@@ -1,6 +1,13 @@
 <script setup lang="ts">
-import { makeup, student } from '../data/seed'
+import { computed, onMounted } from 'vue'
+import { useResource } from '../composables/useResource'
+import { termMeta } from '../data/seed'
+import type { MakeupItem } from '../types'
 
+const { data, loading, error, reload } = useResource<{ items: MakeupItem[] }>('/api/makeup')
+onMounted(reload)
+
+const items = computed(() => data.value?.items ?? [])
 const statusStyle: Record<string, string> = {
   已报名: 'is-done',
   待缴费: 'is-wait',
@@ -10,16 +17,29 @@ const statusStyle: Record<string, string> = {
 
 <template>
   <div class="page-body">
+    <div v-if="loading" class="state-block" role="status">
+      <p class="state-title">正在读取教务数据…</p>
+      <div class="state-skeleton"><span /><span /><span /></div>
+    </div>
+    <div v-else-if="error" class="state-block" role="alert">
+      <p class="state-title">{{ error }}</p>
+      <button type="button" class="state-retry" @click="reload">重试</button>
+    </div>
+    <template v-else>
     <header class="page-head">
       <div>
-        <p class="eyebrow">{{ student.semester }} · 共 {{ makeup.length }} 项待处理</p>
+        <p class="eyebrow">{{ termMeta.semester }} · 共 {{ items.length }} 项待处理</p>
         <h1>补考重修查询</h1>
       </div>
       <p class="head-note">补考安排由院教务统一下达，重修需在报名截止前完成缴费</p>
     </header>
 
-    <section class="list">
-      <article v-for="m in makeup" :key="m.code" class="item panel">
+    <div v-if="!items.length" class="empty">
+      <p class="empty-title">没有需要办理的补考或重修</p>
+      <p class="empty-hint">成绩全部通过。要核对分数可去「成绩查询」。</p>
+    </div>
+    <section v-else class="list">
+      <article v-for="m in items" :key="m.code" class="item panel">
         <div class="item-top">
           <span class="kind" :class="m.type === '补考' ? 'is-makeup' : 'is-again'">{{ m.type }}</span>
           <h2 class="item-title">{{ m.course }}</h2>
@@ -57,6 +77,7 @@ const statusStyle: Record<string, string> = {
         <li>缴费截止后未支付的报名自动作废，不另设补报。</li>
       </ol>
     </section>
+    </template>
   </div>
 </template>
 
@@ -171,5 +192,72 @@ const statusStyle: Record<string, string> = {
   gap: 6px;
   font-size: 13px;
   color: var(--text);
+}
+
+.empty {
+  border: 1px dashed var(--rule-2);
+  border-radius: var(--r-md);
+  padding: 34px 20px;
+  text-align: center;
+  background: var(--card);
+}
+
+.empty-title {
+  font-family: var(--display);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.empty-hint {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--faint);
+}
+
+.state-block {
+  padding: 34px 20px;
+  border: 1px dashed var(--rule-2);
+  border-radius: var(--r-md);
+  background: var(--card);
+  text-align: center;
+}
+
+.state-title {
+  font-size: 13.5px;
+  color: var(--faint);
+}
+
+.state-skeleton {
+  margin-top: 16px;
+  display: grid;
+  gap: 8px;
+}
+
+.state-skeleton span {
+  height: 12px;
+  border-radius: 2px;
+  background: var(--rule);
+}
+
+.state-skeleton span:nth-child(1) { width: 62%; }
+.state-skeleton span:nth-child(2) { width: 84%; }
+.state-skeleton span:nth-child(3) { width: 45%; }
+
+.state-retry {
+  font: inherit;
+  font-size: 13px;
+  margin-top: 14px;
+  padding: 7px 16px;
+  color: #fff;
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.state-retry:hover {
+  background: var(--seal);
+  border-color: var(--seal);
 }
 </style>

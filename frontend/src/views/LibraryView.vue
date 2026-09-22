@@ -1,9 +1,17 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { libraryStats, loans, student } from '../data/seed'
+import { computed, onMounted } from 'vue'
+import { useResource } from '../composables/useResource'
+import { libraryMeta, termMeta } from '../data/seed'
+import type { LoanItem } from '../types'
 
-const sorted = computed(() => [...loans].sort((a, b) => a.daysLeft - b.daysLeft))
-const seatPct = computed(() => Math.round((libraryStats.seatsOpen / libraryStats.seatsTotal) * 100))
+const { data, loading, error, reload } = useResource<{ items: LoanItem[] }>('/api/loans')
+onMounted(reload)
+
+const items = computed(() => data.value?.items ?? [])
+const sorted = computed(() => [...items.value].sort((a, b) => a.daysLeft - b.daysLeft))
+const borrowed = computed(() => items.value.length)
+const seatPct = computed(() =>
+  Math.round((libraryMeta.seatsOpen / libraryMeta.seatsTotal) * 100))
 
 function dayLabel(d: number): string {
   if (d < 0) return `已逾期 ${Math.abs(d)} 天`
@@ -15,18 +23,31 @@ function dayLabel(d: number): string {
 
 <template>
   <div class="page-body">
+    <div v-if="loading" class="state-block" role="status">
+      <p class="state-title">正在读取教务数据…</p>
+      <div class="state-skeleton"><span /><span /><span /></div>
+    </div>
+    <div v-else-if="error" class="state-block" role="alert">
+      <p class="state-title">{{ error }}</p>
+      <button type="button" class="state-retry" @click="reload">重试</button>
+    </div>
+    <template v-else>
     <header class="page-head">
       <div>
-        <p class="eyebrow">{{ student.semester }} · 图书馆</p>
+        <p class="eyebrow">{{ termMeta.semester }} · 图书馆</p>
         <h1>图书馆服务</h1>
       </div>
       <p class="head-note">
-        可借 <span class="num">{{ libraryStats.quota - libraryStats.borrowed }}</span> / {{ libraryStats.quota }} 册 ·
-        逾期罚款 <span class="num">{{ libraryStats.fine }}</span>
+        可借 <span class="num">{{ libraryMeta.quota - borrowed }}</span> / {{ libraryMeta.quota }} 册 ·
+        逾期罚款 <span class="num">{{ libraryMeta.fine }}</span>
       </p>
     </header>
 
-    <section class="panel">
+      <div v-if="!items.length" class="empty">
+        <p class="empty-title">没有在借的图书</p>
+        <p class="empty-hint">全部归还完毕。要查馆藏可以问助手"图书馆有哪些书"。</p>
+      </div>
+      <section v-else class="panel">
       <table class="ledger">
         <caption>在借的书（按应还日排序）</caption>
         <thead>
@@ -58,7 +79,7 @@ function dayLabel(d: number): string {
       <div class="seat panel">
         <p class="eyebrow">自修座位</p>
         <p class="seat-num num">
-          {{ libraryStats.seatsOpen }}<span class="seat-of">/ {{ libraryStats.seatsTotal }}</span>
+          {{ libraryMeta.seatsOpen }}<span class="seat-of">/ {{ libraryMeta.seatsTotal }}</span>
         </p>
         <p class="seat-label">当前空位</p>
         <div class="bar"><span :style="{ width: seatPct + '%' }" /></div>
@@ -73,6 +94,7 @@ function dayLabel(d: number): string {
         </ul>
       </div>
     </section>
+    </template>
   </div>
 </template>
 
@@ -163,5 +185,72 @@ function dayLabel(d: number): string {
   .side {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+.empty {
+  border: 1px dashed var(--rule-2);
+  border-radius: var(--r-md);
+  padding: 34px 20px;
+  text-align: center;
+  background: var(--card);
+}
+
+.empty-title {
+  font-family: var(--display);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.empty-hint {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--faint);
+}
+
+.state-block {
+  padding: 34px 20px;
+  border: 1px dashed var(--rule-2);
+  border-radius: var(--r-md);
+  background: var(--card);
+  text-align: center;
+}
+
+.state-title {
+  font-size: 13.5px;
+  color: var(--faint);
+}
+
+.state-skeleton {
+  margin-top: 16px;
+  display: grid;
+  gap: 8px;
+}
+
+.state-skeleton span {
+  height: 12px;
+  border-radius: 2px;
+  background: var(--rule);
+}
+
+.state-skeleton span:nth-child(1) { width: 62%; }
+.state-skeleton span:nth-child(2) { width: 84%; }
+.state-skeleton span:nth-child(3) { width: 45%; }
+
+.state-retry {
+  font: inherit;
+  font-size: 13px;
+  margin-top: 14px;
+  padding: 7px 16px;
+  color: #fff;
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.state-retry:hover {
+  background: var(--seal);
+  border-color: var(--seal);
 }
 </style>

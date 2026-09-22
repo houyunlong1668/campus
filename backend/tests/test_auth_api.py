@@ -9,22 +9,22 @@ from app.auth.rate_limit import LoginGuard
 from app.auth.session import SessionStore
 from app.auth.students import build_student_repository, seed_students
 from app.config import Settings
-from app.db.engine import init_db
+from app.db.migrations import init_sqlite
 
 
 @pytest.fixture
 def client(tmp_path):
     """最小 app：只挂 auth 路由，不启 MCP 子进程，避免把 lifespan 的重启动拉进单测。"""
-    path = tmp_path / "campus.db"
 
     async def setup():
-        await init_db(path)
-        await seed_students(path)
+        db = await init_sqlite(tmp_path / "campus.db")
+        await seed_students(db)
+        return db
 
-    asyncio.run(setup())
+    db = asyncio.run(setup())
 
     app = FastAPI()
-    app.state.students = build_student_repository(path)
+    app.state.students = build_student_repository(db)
     app.state.sessions = SessionStore(ttl_seconds=43200)
     app.state.login_guard = LoginGuard()
     app.state.settings = Settings(cookie_secure=False)

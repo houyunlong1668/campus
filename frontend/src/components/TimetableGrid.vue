@@ -4,19 +4,20 @@
  * 首页只传今天一列（变成"今日安排"），课表页传五列（周课表），同一装置两种读数。
  */
 import { computed } from 'vue'
-import { courses, md, nowPeriod, periods, weekdays, type CourseEntry } from '../data/seed'
+import { md, nowPeriod, periods, weekdays } from '../data/seed'
+import type { CourseEntry } from '../types'
 
 const props = withDefaults(defineProps<{
   days: number[]
   detailed?: boolean
   items?: CourseEntry[]
-}>(), { detailed: false, items: () => courses })
+}>(), { detailed: false, items: () => [] })
 
 const shown = computed(() => props.items)
 
 const dayNow = computed(() => new Date().getDay())
 
-const live = computed(() => nowPeriod())
+const live = computed(() => nowPeriod(shown.value))
 const activeIndex = computed(() => live.value.index)
 
 /** 本周各天的日期读数，让"周一"落到具体的某一天 */

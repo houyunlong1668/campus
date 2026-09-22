@@ -1,6 +1,9 @@
 services:
   mysql:
     image: mysql:8.4
+    # 固定容器名：compose 默认按"目录名-N"命名，换个目录起就变成别的名字，
+    # 而计划里的判据命令与 deploy/mysql/lockdown_agent_ro.sql 都按名字引用它。
+    container_name: campus-mysql
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci
@@ -10,7 +13,10 @@ services:
       MYSQL_DATABASE: campus
       MYSQL_USER: agent_ro
       MYSQL_PASSWORD: ${AGENT_RO_PASSWORD}
-    ports: ["3306:3306"]
+    # 宿主机 3306 已被一个非本项目的原生 mysqld 占用，映射到 3307。
+    # 后端配置对应写 MYSQL_PORT=3307。
+    ports: ["3307:3306"]
+    restart: unless-stopped
     volumes: [campus-mysql:/var/lib/mysql]
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_ROOT_PASSWORD}"]
@@ -19,3 +25,7 @@ services:
       retries: 20
 volumes:
   campus-mysql: {}
+# 数据卷会保留 root/agent_ro 的凭据与授权状态：MYSQL_USER/MYSQL_PASSWORD 只在
+# 卷为空时生效。任何 `down -v` 或删卷之后，agent_ro 会被 compose 重新授到
+# campus.* 全权限，必须重跑 deploy/mysql/lockdown_agent_ro.sql 才能回到零权限
+# （S2 验收与 S3 的 run_sql 都依赖这一点）。

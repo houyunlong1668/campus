@@ -10,7 +10,7 @@ from app.auth.rate_limit import LoginGuard
 from app.auth.session import SessionStore
 from app.auth.students import build_student_repository, seed_students
 from app.config import Settings
-from app.db.engine import init_db
+from app.db.migrations import init_sqlite
 from app.db.repository import build_repository
 from app.llm.fake import FakeProvider
 from app.tools.inmemory import InMemoryRegistry
@@ -21,21 +21,22 @@ def env(tmp_path):
     path = tmp_path / "campus.db"
 
     async def setup():
-        await init_db(path)
-        await seed_students(path)
+        db = await init_sqlite(path)
+        await seed_students(db)
+        return db
 
-    asyncio.run(setup())
+    db = asyncio.run(setup())
 
     async def fake_resolve(intent: str, params: dict | None = None):
         return {"path": "/academic/grades", "title": "成绩查询", "capabilities": []}
 
     app = FastAPI()
     app.state.settings = Settings()
-    app.state.students = build_student_repository(path)
+    app.state.students = build_student_repository(db)
     app.state.sessions = SessionStore(ttl_seconds=43200)
     app.state.login_guard = LoginGuard()
     app.state.provider = FakeProvider()
-    app.state.repository = build_repository(path)
+    app.state.repository = build_repository(db)
     app.state.registry = InMemoryRegistry({
         "resolve_page": {
             "spec": {
