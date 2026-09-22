@@ -83,10 +83,12 @@ class OpenAICompatProvider:
         tool_note = ""
         for name, result in (state.get("tool_results") or {}).items():
             tool_note += f"\n工具 {name} 返回: {json.dumps(result.get('data'), ensure_ascii=False)}"
-        messages = [
-            {"role": "system", "content": ANSWER_SYSTEM},
-            {"role": "user", "content": f"用户问: {user_input}{tool_note}"},
-        ]
+        messages = [{"role": "system", "content": ANSWER_SYSTEM}]
+        for h in (state.get("history") or []):
+            if h.get("role") in ("user", "assistant") and h.get("content"):
+                messages.append({"role": h["role"], "content": h["content"]})
+        messages.append({"role": "user",
+                         "content": f"用户问: {user_input}{tool_note}"})
         if state.get("error"):
             messages.append({"role": "user",
                              "content": f"工具调用失败({state['error']})，请给出降级说明。"})

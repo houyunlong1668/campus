@@ -48,13 +48,17 @@ async def chat(request: ChatRequest, req: Request,
     message_id = uuid.uuid4().hex[:12]
     start = time.perf_counter()
 
+    # 裁决 B 落地点：history 变量必须在 initial_state 使用之前定义（顺序不能反）。
+    # 在落库之前读——本轮消息还没进库，读到的天然只有上一轮及更早。
+    settings = req.app.state.settings
+    history = await repository.recent_history(
+        student_id=student.student_id, limit=settings.history_limit)
+
     initial_state = {
         "user_input": request.message,
         # 图内的"会话"即学号：节点不需要知道身份从哪来
         "student_id": student.student_id,
-        # 裁决 B：history 真实回读要到 Task 7 才有 recent_history(...)，
-        # 这里必须给类型对得上的空表，否则本任务单独跑就是 NameError。
-        "history": [],
+        "history": history,
         "intent": None, "route": None, "tool_name": None, "tool_args": {},
         "tool_results": {}, "answer": "", "nav_card": None,
         "needs_clarification": False, "clarification": None, "sql": None,
