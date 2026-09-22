@@ -150,7 +150,7 @@ def academic_registry():
 class Test三态分流:
     async def test_取数意图走query出数据而非跳转卡(self, academic_registry):
         graph = build_graph(FakeProvider(), academic_registry)
-        collected, final = await run_graph(graph, "我这学期的高数成绩是多少")
+        collected, final = await run_graph(graph, "我这学期平均分多少")
         assert final["route"] == "query"
         assert final["steps"] == ["router", "sql_executor", "generator"]
         assert collected["nav_card"] is None          # 没跑 resolve_page
