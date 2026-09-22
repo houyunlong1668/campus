@@ -51,9 +51,13 @@ async def chat(request: ChatRequest, req: Request,
     initial_state = {
         "user_input": request.message,
         # 图内的"会话"即学号：节点不需要知道身份从哪来
-        "session_id": student.student_id,
-        "intent": None, "tool_name": None, "tool_args": {},
+        "student_id": student.student_id,
+        # 裁决 B：history 真实回读要到 Task 7 才有 recent_history(...)，
+        # 这里必须给类型对得上的空表，否则本任务单独跑就是 NameError。
+        "history": [],
+        "intent": None, "route": None, "tool_name": None, "tool_args": {},
         "tool_results": {}, "answer": "", "nav_card": None,
+        "needs_clarification": False, "clarification": None, "sql": None,
         "steps": [], "error": None,
     }
 

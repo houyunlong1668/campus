@@ -22,6 +22,12 @@ ANSWER_SYSTEM = (
     "引导用户点击跳转卡片。不要编造工具里没有的数据。"
 )
 
+SQL_SYSTEM = (
+    "你是 SQL 生成器。只许 SELECT，只许引用 v_grades/v_schedule/v_makeup/v_loans "
+    "四个视图，绝不出现 student_id 列，绝不写多条语句。"
+    "输出只含 SQL 文本本身，不要解释、不要 markdown 代码块。"
+)
+
 
 class OpenAICompatProvider:
     """一份代码服务通义千问 compatible-mode 与 DeepSeek，差异全在三个环境变量。"""
@@ -59,6 +65,19 @@ class OpenAICompatProvider:
                                      tool_args=args, confidence=1.0)
         return RouteDecision(intent=user_input[:20], tool_name=None,
                              tool_args={}, confidence=0.5)
+
+    async def generate_sql(self, user_input: str, schema_json: str) -> str:
+        resp = await self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "system", "content": SQL_SYSTEM},
+                      {"role": "user", "content": f"语义视图结构：{schema_json}\n\n用户问题：{user_input}"}],
+        )
+        text = (resp.choices[0].message.content or "").strip()
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text.startswith("sql"):
+                text = text[3:]
+        return text.strip()
 
     async def stream_answer(self, user_input: str, state: dict[str, Any]) -> AsyncIterator[str]:
         tool_note = ""

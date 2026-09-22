@@ -10,10 +10,9 @@ logger = logging.getLogger("campus-agent.tool_executor")
 
 async def tool_executor_node(state, registry: ToolRegistry, writer: StreamWriter):
     name = state["tool_name"]
-    # Task 5：会话学号从 state 侧取、服务端注入（模型侧 schema 看不见这列）。
-    # 现字段名 session_id（chat.py 里存的就是 student_id）；Task 6 改名 student_id。
+    # Task 5 起：会话学号从 state 侧取、服务端注入（模型侧 schema 看不见这列）。
     result = await registry.call_tool(name, state["tool_args"],
-                                      student_id=state["session_id"])
+                                      student_id=state["student_id"])
     writer(("tool_call", {
         "name": name,
         "args": state["tool_args"],

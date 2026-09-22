@@ -40,9 +40,11 @@ async def run_graph(graph, user_input: str):
     collected = {"tokens": [], "nav_card": None, "custom": []}
     final = None
     async for mode, payload in graph.astream(
-        {"user_input": user_input, "session_id": "s-test",
-         "intent": None, "tool_name": None, "tool_args": {},
-         "tool_results": {}, "answer": "", "nav_card": None, "steps": [], "error": None},
+        {"user_input": user_input, "student_id": "20230001", "history": [],
+         "intent": None, "route": None, "tool_name": None, "tool_args": {},
+         "tool_results": {}, "answer": "", "nav_card": None,
+         "needs_clarification": False, "clarification": None, "sql": None,
+         "steps": [], "error": None},
         stream_mode=["custom", "values"],
     ):
         if mode == "custom":
@@ -90,8 +92,10 @@ class TestRouterGuards:
 
     async def test_tool_failure_degrades(self, registry):
         graph = build_graph(FakeProvider(), registry)
-        # "查补考安排" 在 FakeProvider 规则里命中工具，但 registry 的 fake 只对含"成绩"/"课"的 intent 返回
-        collected, final = await run_graph(graph, "查补考安排")  # 命中规则但 resolve 内部未命中
+        # 三态后"补考"是取数提示词（spec 7.3 规则 2 → query），本用例要测的
+        # navigate 降级路径得换不含查询提示词的输入："图书"命中路由关键词，
+        # 但 registry 的 fake 只认含"成绩"/"课"的 intent → resolve 内部未命中。
+        collected, final = await run_graph(graph, "查图书")  # 命中规则但 resolve 内部未命中
         assert final["steps"] == ["router", "tool_executor", "generator"]
         tool_events = [c for c in collected["custom"] if c[0] == "tool_call"]
         assert tool_events[0][1]["ok"] is False  # 失败仍走完，降级话术由 generator 出
@@ -103,3 +107,96 @@ class TestSSE:
 
         frame = sse_frame("token", {"text": "你好"})
         assert frame == 'event: token\ndata: {"text": "你好"}\n\n'
+
+
+ACADEMIC_SCHEMA = {
+    "type": "object",
+    "properties": {"sql": {"type": "string"}},
+    "required": ["sql"],
+}
+
+
+@pytest.fixture
+def academic_registry():
+    # student_id：裁决 A 下 call_tool 会在校验后注入这一参（TRUSTED_ARGS），
+    # brief 原签名 sql-only 会 TypeError 被 timed_call 吞成 ok=False。
+    async def fake_run_sql(sql: str, student_id: str | None = None):
+        if "student_id=" in sql.replace(" ", ""):
+            return {"ok": False, "refused_code": "identity_column",
+                    "scoped_sql": "", "rows": [], "columns": [], "row_count": 0}
+        # 跨两个学期 → 触发澄清；若 SQL 里已被限定学期，则只剩该学期的行
+        rows = [["高等数学（上）", "2025 秋"], ["数据结构", "2026 春"]]
+        for term in ("2025 秋", "2026 春"):
+            if f"term = '{term}'" in sql:
+                rows = [r for r in rows if r[1] == term]
+        return {"ok": True, "scoped_sql": sql, "columns": ["course", "term"],
+                "rows": rows, "row_count": len(rows), "refused_code": None}
+
+    return InMemoryRegistry({
+        "resolve_page": {"spec": {"name": "resolve_page", "description": "d",
+                                  "input_schema": RESOLVE_SCHEMA},
+                         "fn": lambda intent: {"path": "/academic/grades",
+                                               "title": "成绩查询",
+                                               "capabilities": ["查成绩"]}},
+        "describe_schema": {"spec": {"name": "describe_schema", "description": "d",
+                                     "input_schema": {"type": "object", "properties": {}}},
+                            "fn": lambda: [{"name": "v_grades", "columns": ["course", "term"]}]},
+        "run_sql": {"spec": {"name": "run_sql", "description": "d",
+                             "input_schema": ACADEMIC_SCHEMA},
+                    "fn": fake_run_sql},
+    })
+
+
+class Test三态分流:
+    async def test_取数意图走query出数据而非跳转卡(self, academic_registry):
+        graph = build_graph(FakeProvider(), academic_registry)
+        collected, final = await run_graph(graph, "我这学期的高数成绩是多少")
+        assert final["route"] == "query"
+        assert final["steps"] == ["router", "sql_executor", "generator"]
+        assert collected["nav_card"] is None          # 没跑 resolve_page
+        assert final["sql"] and final["sql"]["row_count"] == 2
+
+    async def test_纯跳转意图仍走navigate(self, registry):
+        graph = build_graph(FakeProvider(), registry)
+        _, final = await run_graph(graph, "这学期上什么课")
+        assert final["route"] == "navigate"
+        assert final["steps"] == ["router", "tool_executor", "generator"]
+
+    async def test_两者都像_query优先且跳转卡仍出(self, academic_registry):
+        """spec 7.3 规则 3：query 胜出，但两个 executor 结果可共存。"""
+        graph = build_graph(FakeProvider(), academic_registry)
+        collected, final = await run_graph(graph, "我成绩怎么样，顺便去成绩页看看")
+        assert final["route"] == "query"
+        assert final["tool_results"].get("resolve_page")   # sql_executor 先补跑了
+        assert collected["nav_card"]["path"] == "/academic/grades"
+
+    async def test_都不像走answer(self, registry):
+        graph = build_graph(FakeProvider(), registry)
+        _, final = await run_graph(graph, "今天天气怎么样")
+        assert final["route"] == "answer"
+        assert final["steps"] == ["router", "generator"]
+
+
+class Test澄清:
+    async def test_跨学期且未指定学期_出clarify选项(self, academic_registry):
+        graph = build_graph(FakeProvider(), academic_registry)
+        collected, final = await run_graph(graph, "我的数据结构成绩")
+        assert final["needs_clarification"] is True
+        assert [o["label"] for o in final["clarification"]["options"]] == ["2025 秋", "2026 春"]
+        clarify_events = [c for c in collected["custom"] if c[0] == "clarify"]
+        assert clarify_events and clarify_events[0][1]["question"]
+
+    async def test_点选项后第二轮收敛不再追问_spec9_2两轮闭环(self, academic_registry):
+        """spec 9.2 集成测点名要的"澄清两轮闭环"：
+        第一轮跨学期 → 出选项；用户点"2025 秋"后第二轮只剩该学期，不再追问。
+        任何一轮 needs_clarification 仍为 True 都算没收敛。"""
+        graph = build_graph(FakeProvider(), academic_registry)
+        _, first = await run_graph(graph, "我的数据结构成绩")
+        assert first["needs_clarification"] is True
+        labels = [o["label"] for o in first["clarification"]["options"]]
+
+        _, second = await run_graph(graph, f"{labels[0]} 我的数据结构成绩")
+        assert second["needs_clarification"] is False
+        assert second["clarification"] is None
+        assert [r[1] for r in second["sql"]["rows"]] == ["2025 秋"]   # 只剩该学期
+        assert second["error"] is None
