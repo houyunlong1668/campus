@@ -11,7 +11,7 @@ from langgraph.errors import GraphRecursionError
 from ..agent.graph import build_graph
 from ..auth.deps import require_student
 from ..auth.students import Student
-from ..db.repository import ToolCallRecord
+from ..db.repository import SqlQueryRecord, ToolCallRecord
 from ..schemas import ChatRequest
 
 logger = logging.getLogger("campus-agent.chat")
@@ -79,12 +79,23 @@ async def chat(request: ChatRequest, req: Request,
             persisted = True
             state = final_state or {}
             try:
+                sql_state = state.get("sql")
+                sql_record = None
+                if sql_state:
+                    sql_record = SqlQueryRecord(
+                        sql_raw=sql_state.get("raw", ""),
+                        sql_scoped=sql_state.get("scoped", ""),
+                        refused_code=sql_state.get("refused_code"),
+                        row_count=int(sql_state.get("row_count") or 0),
+                        latency_ms=0,
+                    )
                 conversation_id = await repository.record_exchange(
                     student_id=student.student_id,
                     user_text=request.message,
                     assistant_text=state.get("answer", ""),
                     tool_call=build_record(state),
                     steps=state.get("steps", []),
+                    sql=sql_record,
                 )
             except Exception:
                 logger.exception("request_id=%s 落库失败（不中断对话流）", request_id)
@@ -103,6 +114,15 @@ async def chat(request: ChatRequest, req: Request,
                 else:
                     final_state = payload  # values 模式最后一条即合并后的最终 state
             await persist()
+            # 拒绝是"查了但不让查"，不是链路故障：先出 generator 的人话，
+            # 再补一条可标红的错误事件（spec 4.3 + 7.2 两条都满足）
+            sql_state = (final_state or {}).get("sql") or {}
+            if sql_state.get("refused_code"):
+                yield sse_frame("error", {
+                    "code": "sql_refused",
+                    "message": (final_state or {}).get("error")
+                               or sql_state["refused_code"],
+                })
             yield sse_frame("done", {
                 "message_id": message_id,
                 "conversation_id": conversation_id,
