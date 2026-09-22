@@ -26,7 +26,10 @@ class StdioMcpRegistry(ToolRegistry):
     async def list_tools(self) -> list[ToolSpec]:
         return self._specs
 
-    async def call_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
+    async def call_tool(self, name: str, args: dict[str, Any],
+                        student_id: str | None = None) -> ToolResult:
+        # student_id 在 Task 4 只收不注入；Task 5 按裁决 A 在此做
+        # "先丢弃模型塞的、校验、再注入"（TRUSTED_ARGS）
         spec = next((s for s in self._specs if s.name == name), None)
         if spec is None:
             return ToolResult(ok=False, error=f"未知工具: {name}", latency_ms=0)
@@ -46,14 +49,36 @@ class StdioMcpRegistry(ToolRegistry):
         return await timed_call(invoke)
 
 
+def _server_python(server_dir: Path) -> Path:
+    """选启动解释器：server 自带 .venv（uv sync 产物）就用它的绝对路径。
+
+    academic 的 sqlglot/aiosqlite 只在它自己 uv 项目的 venv 里——backend venv
+    （sys.executable）启动会在 import guard 时 ModuleNotFoundError；navigation
+    没有 .venv，维持 sys.executable 不变。M1 硬约束的本意是"不用 PATH 上的
+    裸 python"，venv 解释器绝对路径同样满足，且子进程环境 == uv.lock 锁定环境。
+    """
+    for stem, exe in (("Scripts", "python.exe"), ("bin", "python")):
+        candidate = server_dir / ".venv" / stem / exe
+        if candidate.exists():
+            return candidate
+    return Path(sys.executable)
+
+
 @asynccontextmanager
-async def stdio_registry(server_dir: Path):
-    """lifespan 用：拉起 MCP 子进程，退出时随 AsyncExitStack 关闭。"""
+async def stdio_registry(server_dir: Path, env: dict[str, str] | None = None):
+    """lifespan 用：拉起 MCP 子进程，退出时随 AsyncExitStack 关闭。
+
+    env 必须显式传给 academic：MCP 的 StdioServerParameters 在 env=None 时
+    走白名单环境（只留 PATH/HOME 之类），DB_BACKEND 之类自定义变量传不进去。
+    navigation 不连库，仍用默认。
+    """
+    resolved = server_dir.resolve()
     async with AsyncExitStack() as stack:
         params = StdioServerParameters(
-            command=sys.executable,        # 硬约束
+            command=str(_server_python(resolved)),  # 硬约束：解释器绝对路径，不用裸 "python"
             args=["server.py"],
-            cwd=str(server_dir.resolve()),  # 硬约束：绝对路径
+            cwd=str(resolved),                      # 硬约束：绝对路径
+            env=env,
         )
         read, write = await stack.enter_async_context(stdio_client(params))
         session = await stack.enter_async_context(ClientSession(read, write))

@@ -19,7 +19,10 @@ class ToolResult(BaseModel):
 
 class ToolRegistry(Protocol):
     async def list_tools(self) -> list[ToolSpec]: ...
-    async def call_tool(self, name: str, args: dict[str, Any]) -> ToolResult: ...
+    # student_id：Task 5 起由 StdioMcpRegistry 按裁决 A 注入（先丢弃后注入），
+    # Task 4 先入参占位——CompositeRegistry 的分派调用带这个 kwarg
+    async def call_tool(self, name: str, args: dict[str, Any],
+                        student_id: str | None = None) -> ToolResult: ...
 
 
 async def timed_call(fn: Callable[[], Awaitable[Any]]) -> ToolResult:

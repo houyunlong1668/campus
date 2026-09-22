@@ -85,3 +85,48 @@ class TestInMemoryRegistry:
 
         missing = await registry.call_tool("nope", {})
         assert not missing.ok
+
+
+def test_CompositeRegistry_按工具名分派():
+    import asyncio
+
+    from app.tools.composite import CompositeRegistry
+    from app.tools.inmemory import InMemoryRegistry
+
+    nav = InMemoryRegistry({"resolve_page": {"spec": {
+        "name": "resolve_page", "description": "d",
+        "input_schema": {"type": "object", "properties": {"intent": {"type": "string"}},
+                         "required": ["intent"]}},
+        "fn": lambda intent: {"path": "/x"}}})
+    acad = InMemoryRegistry({"run_sql": {"spec": {
+        "name": "run_sql", "description": "d",
+        "input_schema": {"type": "object",
+                         "properties": {"sql": {"type": "string"}},
+                         "required": ["sql"]}},
+        "fn": lambda sql: {"rows": []}}})
+
+    reg = CompositeRegistry([nav, acad])
+    names = asyncio.run(reg.list_tools())
+    assert {s.name for s in names} == {"resolve_page", "run_sql"}
+
+    res = asyncio.run(reg.call_tool("run_sql", {"sql": "SELECT 1"}))
+    assert res.ok and res.data == {"rows": []}
+    unknown = asyncio.run(reg.call_tool("nope", {}))
+    assert unknown.ok is False and "未知工具" in unknown.error
+
+
+async def test_academic子进程真能被拉起并列出工具():
+    """端到端：确认 env 透传与独立 uv 项目都对。跑不通说明 Task 4 Step 6 没做实。"""
+    import os
+
+    from app.config import Settings
+    from app.tools.stdio_mcp import stdio_registry
+
+    s = Settings(db_backend="sqlite")
+    env = {**os.environ, "DB_BACKEND": "sqlite",
+           "SQLITE_PATH": str(s.sqlite_path)}
+    # brief 原文是 Path("mcp_servers/academic")，相对 cwd=backend 解析不到——
+    # 改用 Settings 的绝对路径（与 test_stdio_mcp 的 get_settings() 同一惯例）
+    async with stdio_registry(s.academic_server_dir, env=env) as reg:
+        names = {t.name for t in await reg.list_tools()}
+    assert {"describe_schema", "run_sql"} <= names

@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -17,10 +18,25 @@ from .db.migrations import assert_current_schema, run_migrations
 from .db.repository import build_repository
 from .llm import build_provider
 from .tools.base import ToolRegistry
+from .tools.composite import CompositeRegistry
 from .tools.stdio_mcp import stdio_registry
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("campus-agent")
+
+
+def _academic_env(settings) -> dict[str, str]:
+    """显式传库配置给 academic 子进程——env=None 时 MCP 只透传白名单变量。"""
+    return {
+        **os.environ,
+        "DB_BACKEND": settings.db_backend,
+        "SQLITE_PATH": str(settings.sqlite_path),
+        "MYSQL_HOST": settings.mysql_host,
+        "MYSQL_PORT": str(settings.mysql_port),
+        "MYSQL_USER": settings.mysql_user,
+        "MYSQL_PASSWORD": settings.mysql_password,
+        "MYSQL_DATABASE": settings.mysql_database,
+    }
 
 
 @asynccontextmanager
@@ -37,7 +53,9 @@ async def lifespan(app: FastAPI):
     app.state.students = build_student_repository(db)
     app.state.sessions = SessionStore(ttl_seconds=settings.session_ttl_seconds)
     app.state.login_guard = LoginGuard()
-    async with stdio_registry(settings.navigation_server_dir) as registry:
+    async with stdio_registry(settings.navigation_server_dir) as nav_reg, \
+               stdio_registry(settings.academic_server_dir, env=_academic_env(settings)) as academic_reg:
+        registry = CompositeRegistry([nav_reg, academic_reg])
         app.state.registry = registry
         logger.info("MCP tools ready: %s", [t.name for t in await registry.list_tools()])
         yield

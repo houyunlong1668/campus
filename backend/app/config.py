@@ -9,6 +9,7 @@ class Settings(BaseSettings):
 
     cors_origin: str = "http://localhost:5173"
     navigation_server_dir: Path = Path(__file__).resolve().parent.parent.parent / "mcp_servers" / "navigation"
+    academic_server_dir: Path = Path(__file__).resolve().parent.parent.parent / "mcp_servers" / "academic"
     llm_provider: str = "fake"
     openai_base_url: str = ""
     openai_model: str = ""
