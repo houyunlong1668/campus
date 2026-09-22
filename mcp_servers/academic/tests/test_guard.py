@@ -78,3 +78,29 @@ class Test规则9到10:
 
 def test_白名单就是四个语义视图():
     assert WHITELIST == {"v_grades", "v_schedule", "v_makeup", "v_loans"}
+
+
+class TestCTE白名单绕过回归:
+    def test_CTE体内读基表_限定名必须拒(self):
+        # 限定名 main.students 在任何引擎里都永远不指 CTE——
+        # 旧版按裸名豁免把它放行，实测读出基表全部行（Critical 白名单绕过）。
+        assert code_of("WITH students AS (SELECT * FROM main.students) SELECT * FROM students") \
+            == "relation_not_whitelisted"
+
+    def test_CTE体内自引用_非限定也必须拒(self):
+        # 非递归 SQL 语义里 CTE 体内看不到自己的名字，体内同名引用解析到
+        # 真实基表。引擎可能自己挡住（SQLite 报 circular reference），但
+        # guard 必须先拒——不能依赖引擎侥幸。
+        assert code_of("WITH students AS (SELECT * FROM students) SELECT * FROM students") \
+            == "relation_not_whitelisted"
+
+    def test_合法CTE仍然放行_别把放行测试修红(self):
+        assert validate("WITH t AS (SELECT 1 AS a) SELECT a FROM t", DIALECT).ok
+
+    def test_兄弟子树诱饵CTE不给豁免(self):
+        # 诱饵 CTE students 在派生表子查询里声明，外层标量子查询里的
+        # FROM students 是指向真基表的兄弟子树引用——不能搭诱饵的便车。
+        assert code_of(
+            "SELECT (SELECT COUNT(*) FROM students) "
+            "FROM (WITH students AS (SELECT 1 AS x) SELECT * FROM students) u"
+        ) == "relation_not_whitelisted"

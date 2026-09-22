@@ -63,8 +63,10 @@ def _check_table(table: exp.Table, cte_names: set[str]) -> GuardResult | None:
     db = (table.db or "").lower()
     if db in FORBIDDEN_SCHEMAS or name in FORBIDDEN_SCHEMAS:
         return _refuse("forbidden_schema", "该数据不在可查询范围")
-    if name in cte_names:
-        # CTE 不是外部关系；SQL 语义里同名 CTE 遮蔽基表，FROM 解析到的是 CTE 本身。
+    if name in cte_names and not db:
+        # 仅非限定名可豁免：限定名（main.students）在任何引擎里都永远不指 CTE，
+        # 直接落白名单判定；非限定且在可见 CTE 名内才是 CTE 引用
+        # （SQL 同名遮蔽基表，FROM 解析到的是 CTE 本身）。
         return None
     if name not in WHITELIST:
         return _refuse("relation_not_whitelisted", "该数据不在可查询范围")
@@ -72,26 +74,40 @@ def _check_table(table: exp.Table, cte_names: set[str]) -> GuardResult | None:
 
 
 def _visible_cte_names(scope: Scope) -> set[str]:
-    """作用域可见的 CTE 名 = 本层 + 全部祖先层（SQL 的 CTE 可见性规则）。"""
+    """作用域可见的 CTE 名 = 本层 + 全部祖先层，再剔除包住本作用域的 CTE。
+
+    非递归 SQL 语义：CTE 体内看不到它自己；同理，一个 CTE 嵌在另一个
+    CTE 体内时，外层那个在其自身体内也不可见——两者的体内同名引用解析到
+    的都是真实基表，所以包住本作用域的 CTE 名一律剔除（fail-closed，
+    剔重名更严不更松）。同一 WITH 的兄弟 CTE 不包住本作用域，仍可见。
+    """
+    enclosing: set[str] = set()
+    node: exp.Expression | None = scope.expression
+    while node is not None:
+        if isinstance(node, exp.CTE):
+            enclosing.add(node.alias.lower())
+        node = node.parent
     names: set[str] = set()
     current: Scope | None = scope
     while current is not None:
         names.update(cte.alias.lower() for cte in current.ctes)
         current = current.parent
-    return names
+    return names - enclosing
 
 
 def _check_relations(tree: exp.Expression) -> GuardResult | None:
-    """规则 3（含禁库）：按作用域判定，CTE 名按可见性豁免。
+    """规则 3（含禁库）：按作用域判定，CTE 名按可见性精确豁免。
 
-    不用整树平表收集 CTE 名：那会把只在兄弟子树里定义的诱饵 CTE
-    当成免检符，让 FROM 真基表的引用搭便车溜出白名单。
+    两道防线，都是从严：诱饵 CTE 只在兄弟子树里定义时给不了本处豁免
+    （作用域感知）；作用域树算不出来时（traverse_scope 抛异常，或个别
+    Table 节点没被任何 scope 收录）一律不豁免任何 CTE 名——算得出就精确，
+    算不出就从严，绝不退回整树 CTE 平表那种比正常路径更松的判定。
     """
-    flat_cte_names = {cte.alias.lower() for cte in tree.find_all(exp.CTE)}
     seen: set[int] = set()
     try:
         scopes = list(traverse_scope(tree))
     except Exception:
+        # fail-closed：拿不到作用域树就没有"可见 CTE 名"可言，零豁免。
         scopes = []
     for scope in scopes:
         visible = _visible_cte_names(scope)
@@ -100,10 +116,10 @@ def _check_relations(tree: exp.Expression) -> GuardResult | None:
             refusal = _check_table(table, visible)
             if refusal is not None:
                 return refusal
-    # 兜底：任何没落进作用域树的 Table 节点，退回整树 CTE 平表判定，绝不漏检。
+    # 兜底：任何没落进作用域树的 Table 节点，从严——不豁免任何 CTE 名。
     for table in tree.find_all(exp.Table):
         if id(table) not in seen:
-            refusal = _check_table(table, flat_cte_names)
+            refusal = _check_table(table, set())
             if refusal is not None:
                 return refusal
     return None
