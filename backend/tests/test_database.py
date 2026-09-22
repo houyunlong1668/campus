@@ -3,7 +3,9 @@ import pytest
 from app.config import Settings
 from app.db.base import to_mysql_placeholders
 from app.db.database import MySQLDatabase, SqliteDatabase, build_database
-from app.db.migrations import init_sqlite, run_migrations
+from app.db.migrations import (
+    LegacySchemaError, assert_current_schema, init_sqlite, run_migrations,
+)
 from app.db.upsert import save_row
 
 
@@ -109,3 +111,29 @@ async def test_save_row_拒绝拼得出注入的标识符(tmp_path):
         await save_row(db, "t", {"id": "a"}, {"name, note": "甲"})
     with pytest.raises(ValueError):
         await save_row(db, "t; DROP TABLE t", {"id": "a"}, {"name": "甲"})
+
+
+async def test_遗留形状库被探针拒绝启动(tmp_path):
+    """S1 时代的库：conversations 带 session_id NOT NULL。0001 的
+    CREATE TABLE IF NOT EXISTS 既不改也不报错、schema_version 照样记 1，
+    于是 /chat 运行期逐条失败而 /health 全绿——必须启动期就拒绝。"""
+    path = tmp_path / "campus.db"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = SqliteDatabase(path)
+    await db.execute_script(
+        "CREATE TABLE conversations ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " student_id TEXT NOT NULL DEFAULT '',"
+        " session_id TEXT NOT NULL DEFAULT '',"
+        " created_at TEXT NOT NULL DEFAULT (datetime('now')));")
+    await run_migrations(db)
+
+    with pytest.raises(LegacySchemaError) as err:
+        await assert_current_schema(db)
+    assert "backend/data/campus.db" in str(err.value)   # 报错必须给出可执行的修法
+
+
+async def test_新形状库通过探针(tmp_path):
+    db = await init_sqlite(tmp_path / "campus.db")
+
+    await assert_current_schema(db)   # 不抛即通过

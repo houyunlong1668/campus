@@ -13,7 +13,7 @@ from .auth.students import build_student_repository, seed_students
 from .config import get_settings
 from .db.base import Database
 from .db.database import build_database
-from .db.migrations import run_migrations
+from .db.migrations import assert_current_schema, run_migrations
 from .db.repository import build_repository
 from .llm import build_provider
 from .tools.base import ToolRegistry
@@ -30,6 +30,7 @@ async def lifespan(app: FastAPI):
     app.state.provider = build_provider(settings)
     db: Database = build_database(settings)
     await run_migrations(db)
+    await assert_current_schema(db)
     app.state.db = db
     await seed_students(db)
     app.state.repository = build_repository(db)
