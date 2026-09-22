@@ -79,7 +79,7 @@ roadmap spec §5（S5 明确不做）写「RAGAS、**并发/压测**、模型幻
 k6/
   lib/
     env.js        # BASE_URL、三账号常量、密码（**本套件**唯一一处写 demo1234；仓库其它处已有，见 spec2 §11 告警）
-    helpers.js    # 模块级 http.cookieJar()；login(sid)、json()、expect()
+    helpers.js    # 惰性 ensureJar()（k6 禁止 init 上下文造 jar）；login()、get()、post()、json()
   tests/
     api_smoke.js          # 四端点 200 + 响应形状
     authz.js              # 401 / 422 / 429
@@ -124,7 +124,7 @@ k6 version                         # 验收：输出版本号
 1. **k6 把 4xx/5xx 计入 `http_req_failed`**。`authz.js` 故意打 401/422/429——给它设 `http_req_failed: rate===0` 会**必红且红得莫名其妙**。故按文件分阈值：成功路径文件设 `http_req_failed: rate===0`，`authz.js` **只看 `checks`**。
 2. **429 会锁学号**（同号错 5 次锁 60 秒，按 `student_id` 计数且不区分账号是否存在）。拿真账号测就把 `20230001` 锁了，后续文件全 429。**用炮灰学号 `20239999`**（不在 seed 里 → 本来就 401 → 同样计数）；且 `run_k6.sh` 每次起**新进程**，`LoginGuard` 是进程内计数 → 每轮归零，可复现。
 
-**Cookie 显式用 per-VU jar**：`helpers.js` 模块级 `const jar = http.cookieJar()`（k6 模块代码按 VU 求值 → 每 VU 一个 jar），`login()` 与后续请求一律传 `{ jar }`。这样"会话隔离"测的是真实隔离，不是碰巧。
+**Cookie 显式用 per-VU jar**：`helpers.js` 用惰性的 `ensureJar()`，在**第一次真正发请求时（VU 上下文）**才 `http.cookieJar()`——k6 **禁止在 init 上下文（模块级）造 jar**，否则直接抛 `Making cookie jars in the init context is not supported`、整轮跑不起来（2026-09-22 实测踩到）。VU 之间 JS 状态互不共享，所以结果仍是"每 VU 一个 jar"，只是创建时机从"模块加载"挪到"首次请求"。`login()` 与后续请求一律带该 jar。这样"会话隔离"测的是真实隔离，不是碰巧。
 
 ### 4.1 `api_smoke.js` — 1 VU × 1 轮
 
