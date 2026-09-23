@@ -129,7 +129,8 @@ CREATE VIEW IF NOT EXISTS v_makeup (student_id, course, kind, reason, scheduled_
 
 CREATE VIEW IF NOT EXISTS v_loans (student_id, title, call_no, due_at, days_left, shelf) AS
   SELECT student_id, title, call_no, due_at,
-         CAST(julianday(due_at) - julianday('now', 'localtime') AS INTEGER),
+         -- Ruling C 回填：两侧都先 date() 取纯日期差，julianday 带时间会差出 1 天
+         CAST(julianday(date(due_at)) - julianday(date('now', 'localtime')) AS INTEGER),
          shelf
   FROM library_loans
   WHERE returned_at IS NULL;
@@ -1668,7 +1669,7 @@ git commit -m "feat(agent): router 三态分流 + sql_executor 查数节点与�
 - Consumes: 既有 `conversations`/`messages` 表与 `DbConversationRepository`
 - Produces:
   - `Settings.history_limit: int = 6`（spec 12：6 轮上限 + 每条截 200 字，防 token 撑大）
-  - `async def recent_history(self, *, student_id: str, limit: int) -> list[dict[str, str]]`，元素为 `{"role": "user"|"assistant", "content": str}`，**只取该学生最近一条会话**
+  - `async def recent_history(self, *, student_id: str, limit: int) -> list[dict[str, str]]`，元素为 `{"role": "user"|"assistant", "content": str}`，**取该学生最近 limit 条消息（跨会话联表——Ruling Q 回填：`record_exchange` 每轮 INSERT 新 conversation 行，按"最近一条会话"过滤只会剩上一轮 2 条，spec 12 的 6 轮上限永不生效）**
   - `SqlQueryRecord(sql_raw, sql_scoped, refused_code, row_count, latency_ms)`（Task 8 消费）
   - `record_exchange(*, student_id, user_text, assistant_text, tool_call, steps, sql: SqlQueryRecord | None = None) -> int | None`（向后兼容：不传 `sql` 的既有调用与测试不受影响）
 
@@ -1699,7 +1700,7 @@ async def _seed_conversations(db, repo):
                                    tool_call=None, steps=[])
 
 
-async def test_history_只取本人最近一条会话(tmp_path):
+async def test_history_取本人最近limit条消息_跨会话且排除他人(tmp_path):
     db = await init_sqlite(tmp_path / "campus.db")
     repo = build_repository(db)
     await _seed_conversations(db, repo)
@@ -1707,7 +1708,7 @@ async def test_history_只取本人最近一条会话(tmp_path):
     history = await repo.recent_history(student_id="20230001", limit=6)
     contents = [h["content"] for h in history]
     assert "别人的问" not in contents            # 跨用户隔离
-    assert "第一问" not in contents              # 只取最近一条会话
+    assert "第一问" not in contents              # 本人更早的消息被 limit 截掉
     assert contents == ["第2问", "第2答", "第3问", "第3答", "第4问", "第4答"]
     assert all(h["role"] in ("user", "assistant") for h in history)
 
@@ -1765,19 +1766,19 @@ class SqlQueryRecord(BaseModel):
 ```python
     async def recent_history(self, *, student_id: str,
                              limit: int) -> list[dict[str, str]]:
-        """只读该学生最近一条会话的消息，按时间升序，最多 limit 条、每条 200 字。
+        """读该学生最近 limit 条消息（跨会话），按时间升序，每条截 200 字。
 
         不看客户端传来的任何会话 id——历史回读的身份只来自会话（spec 5.1 要点）。
+        record_exchange 每次 INSERT 新 conversation 行，一次对话=一个 conversation，
+        所以按"最近一条会话"过滤只会剩上一轮 2 条，spec 12 的 6 轮上限用不上；
+        必须跨会话取本人最近 limit 条（Ruling Q 回填）。
         """
-        convs = await self._db.fetch_all(
-            "SELECT id FROM conversations WHERE student_id = ?"
-            " ORDER BY id DESC LIMIT 1", (student_id,))
-        if not convs:
-            return []
         rows = await self._db.fetch_all(
-            "SELECT role, content FROM messages WHERE conversation_id = ?"
-            " ORDER BY id", (convs[0]["id"],))
-        rows = rows[-limit:]
+            "SELECT m.role, m.content FROM messages m"
+            " JOIN conversations c ON c.id = m.conversation_id"
+            " WHERE c.student_id = ?"
+            " ORDER BY m.id DESC LIMIT ?", (student_id, limit))
+        rows.reverse()   # 取的是最近 limit 条，要翻回时间升序给模型读
         return [{"role": r["role"], "content": str(r["content"])[:200]} for r in rows]
 ```
 
