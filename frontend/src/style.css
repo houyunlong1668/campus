@@ -63,11 +63,15 @@
 .d-hum  { --c: var(--d-hum);  --c-soft: rgba(107, 99, 40, 0.14); }
 .d-lab  { --c: var(--d-lab);  --c-soft: rgba(123, 63, 94, 0.12); }
 
-/* 滚动条固定槽位：短页（无滚动条）与长页（有滚动条）视口宽度必须一致，
-   否则切页时宽度差约 17px，整页内容横向位移 —— 就是用户看到的抖动。
-   out-in 过渡期间旧页已退出、新页还没进场，滚动条会短暂消失再出现，
-   有这条槽位它就不再时有时无。老 Safari 不认这个属性，会退回原行为（无害）。 */
+/* 切页左右抖动的根治（CDP 实测定位）：out-in 过渡有一瞬文档高度 ≤ 视口
+   （.shell 正好 100svh），垂直滚动条消失又出现——视口宽度在 1847/1862
+   间翻转 15px，居中内容（.page 与导航 tabs）整体横移 ~7.6px。
+   仅 scrollbar-gutter: stable 治不住：Chromium 对根元素不生效
+   （computed 实测仍是 auto）。overflow-y: scroll 把滚动条钉死在槽里，
+   任何时刻视口宽度恒定，抖动源直接消失；scrollbar-gutter 一并保留，
+   在认它的浏览器（Firefox/Safari 新版）里兜底。 */
 html {
+  overflow-y: scroll;
   scrollbar-gutter: stable;
 }
 
