@@ -52,7 +52,7 @@ def test_四端点未登录一律401(client):
 def test_成绩含挂科行且只含本人(client):
     _login(client, "20230001")
     rows = client.get("/api/grades").json()["grades"]
-    assert len(rows) == 13
+    assert len(rows) == 14  # 13 + 数据结构 2025 秋（clarify 跨学期靶子，与 k6 env.js 同源）
     assert {r["name"] for r in rows} >= {"数据结构（暑期补习）", "大学物理（上）"}
     assert next(r for r in rows if r["name"] == "数据结构（暑期补习）")["score"] == 87
     assert next(r for r in rows if r["name"] == "大学物理（上）")["score"] == 56
