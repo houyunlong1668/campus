@@ -1,4 +1,5 @@
 import asyncio
+import re
 from typing import Any, AsyncIterator
 
 from ..tools.base import ToolSpec
@@ -10,6 +11,15 @@ _ROUTE_KEYWORDS = ("课表", "课程", "上什么课", "选课", "成绩", "分�
 
 _SQL_KEYWORDS = {"高数": "高等数学", "高等数学": "高等数学", "数据结构": "数据结构"}
 _TERMS = ("2025 秋", "2026 春")   # 只这一条判定：用户点选项后文本里带学期 → 收窄
+
+# 词典外的具体课程（「我的计算机导论成绩」）从问句尾部抠课程短语，否则 kw=None
+# → SQL 不带 course 过滤 → 全表 14 行都回来，用户看到的是一堆无关项。
+# 只认「(…的)? 短语 + 成绩|分数|多少分」这一种收尾形态；短语里带人称/动词/
+# 指代/疑问字符一律不猜、退回无过滤（spec 12 的边界：这一条正则是 fake 允许
+# 的唯一泛化，不是第二套 NLU——猜不准宁可不猜）。
+_SUBJECT_RE = re.compile(r"(?:.*?的)?(.{2,12}?)(?:的)?(?:成绩|分数|多少分)$")
+_BAD_SUBJECT_CHARS = "我你他咱查问想看要这那几哪是否"
+_BAD_SUBJECT_WORDS = ("平均", "多少", "什么", "学期", "所有", "全部")
 
 
 class FakeProvider:
@@ -29,6 +39,11 @@ class FakeProvider:
         学期那一句是澄清闭环的必需品：没有它，第二轮仍返回跨学期结果，
         澄清会无限追问——spec 9.2 的"两轮收敛"测的就是这里。"""
         kw = next((v for k, v in _SQL_KEYWORDS.items() if k in user_input), None)
+        if kw is None:
+            m = _SUBJECT_RE.match(user_input.strip())
+            if m and not any(c in m.group(1) for c in _BAD_SUBJECT_CHARS) \
+                    and not any(w in m.group(1) for w in _BAD_SUBJECT_WORDS):
+                kw = m.group(1)
         term = next((t for t in _TERMS if t in user_input), None)
         sql = "SELECT course, term, score FROM v_grades WHERE 1=1"
         if kw:
