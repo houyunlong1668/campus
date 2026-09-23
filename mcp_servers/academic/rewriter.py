@@ -42,3 +42,20 @@ def to_mysql_placeholders(sql: str) -> str:
         else:
             out.append(ch)
     return "".join(out)
+
+
+def placeholder_count(sql: str) -> int:
+    """引号外 ? 的个数——绑定参数必须与之逐位对上（rewrite 每处关系替换各注
+    入一个 ?，外层+子查询就是两个；模型若自带 ? 也一并计数、同绑 student_id，
+    guard 不剥模型占位符，这是唯一自洽的绑定语义）。
+
+    与 to_mysql_placeholders 同一套引号跟踪，两处必须一致。
+    """
+    n = 0
+    in_string = False
+    for ch in sql:
+        if ch == "'":
+            in_string = not in_string
+        elif ch == "?" and not in_string:
+            n += 1
+    return n

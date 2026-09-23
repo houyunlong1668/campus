@@ -1,7 +1,7 @@
 import sqlglot
 
 from guard import validate
-from rewriter import rewrite, to_mysql_placeholders
+from rewriter import placeholder_count, rewrite, to_mysql_placeholders
 
 
 def scope(sql: str) -> str:
@@ -75,3 +75,13 @@ def test_to_mysql_placeholders_只动引号外的问号():
 
 def test_to_mysql_placeholders_无问号原样返回():
     assert to_mysql_placeholders("SELECT 1") == "SELECT 1"
+
+
+def test_placeholder_count_与改写产出的占位符一一对应():
+    # 子查询双引用 = 2 个 ? = 绑 2 个 student_id（server 绑定侧的接缝）
+    out = scope("SELECT * FROM v_grades WHERE score > "
+                "(SELECT AVG(score) FROM v_grades)")
+    assert placeholder_count(out) == 2
+    # 引号里的 ? 不算；无 ? 语句返回 0（绑定侧交空元组）
+    assert placeholder_count("SELECT * FROM t WHERE x = 'a?b'") == 0
+    assert placeholder_count("SELECT 1") == 0

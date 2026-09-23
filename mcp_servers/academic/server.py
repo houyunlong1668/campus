@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 import db as db_mod
 from guard import validate
-from rewriter import rewrite
+from rewriter import placeholder_count, rewrite
 
 logging.basicConfig(level=logging.INFO)  # stderr，严禁 print 到 stdout
 
@@ -63,8 +63,12 @@ async def run_sql(sql: str, student_id: str) -> SqlResult:
                          latency_ms=int((time.perf_counter() - start) * 1000))
 
     scoped = rewrite(guard.tree)
+    # 绑定数必须等于占位符数：rewrite 每处引用注入一个 ?，子查询/JOIN/UNION
+    # 都是多处——写死 (student_id,) 在这类 SQL 上必炸 binding 数量错
+    # （真模型的平均分子查询实测炸出，fake 不写子查询所以从未暴露）。
+    args = (student_id,) * placeholder_count(scoped)
     try:
-        columns, rows = await db_mod.query(scoped, (student_id,))
+        columns, rows = await db_mod.query(scoped, args)
     except Exception as exc:
         return SqlResult(ok=False, scoped_sql=scoped,
                          refused_code="db_unavailable",

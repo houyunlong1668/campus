@@ -79,3 +79,29 @@ async def test_run_sql_耗时函数拒绝_A6场景():
     from server import run_sql
     res = await run_sql(sql="SELECT SLEEP(30)", student_id="20230001")
     assert res.ok is False and res.refused_code == "cost_function"
+
+
+async def test_run_sql_子查询双引用_绑定数跟占位符走():
+    """用户实测真模型平均分子查询炸 binding：外层+子查询两处 v_grades 各注入
+    一个 ?，写死 (student_id,) 只绑一个 → ProgrammingError。改写器的双占位符
+    是有测试保证的正确行为，断的是绑定侧——本用例钉住两侧接缝。"""
+    await _seed_db()
+    from server import run_sql
+    res = await run_sql(
+        sql="SELECT ROUND(AVG(score), 2) FROM v_grades WHERE term = "
+            "(SELECT term FROM v_grades ORDER BY term DESC LIMIT 1)",
+        student_id="20230001")
+    assert res.ok is True, res.refused_message
+    assert res.scoped_sql.count("student_id = ?") == 2
+    assert res.row_count == 1            # 只算自己的行（91 分本人数据）
+    assert res.rows[0][0] == 91
+
+
+async def test_run_sql_零占位符语句_空元组也要能跑():
+    """SELECT 1 改写后没有任何 ?，绑 (student_id,) 同样是数量错——计数为 0
+    时必须交空元组。"""
+    await _seed_db()
+    from server import run_sql
+    res = await run_sql(sql="SELECT 1 AS n", student_id="20230001")
+    assert res.ok is True, res.refused_message
+    assert res.rows == [[1]]
