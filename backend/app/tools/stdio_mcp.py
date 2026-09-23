@@ -1,3 +1,4 @@
+import json
 import sys
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
@@ -8,6 +9,41 @@ from mcp.client.stdio import stdio_client
 
 from .base import (ToolRegistry, ToolResult, ToolSpec, strip_trusted,
                    timed_call, validate_args, with_trusted_args)
+
+
+def _text_blocks(result: Any) -> list[str]:
+    """无结构化内容时的退路：拼全部 text 块，而不是只取第一块。
+
+    单块（navigation 的 resolve_page）与旧行为逐字一致。多块时每个块各是一个
+    JSON 对象（list 型工具被线上拆成每元素一块），所以先逐个 loads 成 JSON
+    数组，让下游的 json.loads 仍成立；任何一块不是 JSON 才退回普通文本拼接。
+    只取第一块曾让 describe_schema 的 4 张视图在真环境只剩 v_grades 一张。
+    """
+    parts = [c.text for c in result.content if getattr(c, "text", None) is not None]
+    if len(parts) == 1:
+        return parts[0]
+    try:
+        return json.dumps([json.loads(p) for p in parts], ensure_ascii=False)
+    except ValueError:
+        return "\n".join(parts)
+
+
+def _result_json(result: Any) -> str:
+    """把 MCP 返回折算成一段可 json.loads 的文本（下游 tool_executor /
+    sql_executor 都按字符串解析）。
+
+    优先 structured_content：MCP 2.x 把结构化结果放在这里，对非对象结果按
+    规范包一层 {"result": ...}（describe_schema 的 list[SchemaTable] 就是这样，
+    4 张视图同时在 structured_content 里），拆掉这层包装才能与
+    InMemoryRegistry 直给 list/dict 的形状同构——两条路径语义一致，
+    真路径与测试路径才不会各写各的。
+    """
+    data = getattr(result, "structured_content", None)
+    if data is not None:
+        if isinstance(data, dict) and list(data) == ["result"]:
+            data = data["result"]
+        return json.dumps(data, ensure_ascii=False)
+    return _text_blocks(result)
 
 
 class StdioMcpRegistry(ToolRegistry):
@@ -47,7 +83,7 @@ class StdioMcpRegistry(ToolRegistry):
 
         async def invoke():
             result = await self._session.call_tool(name, args)
-            text = result.content[0].text if result.content else ""
+            text = _result_json(result)
             # MCP 把 server 侧工具异常包成 isError=True 的正常响应帧：
             # 不判它就把"工具失败"当成功返回，落库错误原因也会被扭曲
             if result.is_error:

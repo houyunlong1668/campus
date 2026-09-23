@@ -250,6 +250,15 @@ def test_拒绝时发sql_refused错误事件(sql_env):
         if ln.startswith("event: ") and i + 1 < len(lines) \
                 and lines[i + 1].startswith("data: "):
             events.append((ln[7:], json.loads(lines[i + 1][6:])))
+
+    # 顺序必须钉死，不能只钉 code 集合：拒绝帧要在 done 之前（把它挪到 done
+    # 之后，只断言 code 的写法照样全绿），拒绝轮没有 sql_result，中间的帧
+    # 只许是 generator 的 token（token 有几帧取决于文案长度，故取收尾与
+    # 关键帧断言而非逐帧全等）。
+    kinds = [e for e, _ in events]
+    assert kinds[0] == "tool_call"
+    assert all(k == "token" for k in kinds[1:-2]), kinds
+    assert kinds[-2:] == ["error", "done"]
     assert [d["code"] for e, d in events if e == "error"] == ["sql_refused"]
 
     import asyncio
@@ -259,8 +268,9 @@ def test_拒绝时发sql_refused错误事件(sql_env):
     async def read():
         async with aiosqlite.connect(path) as db:
             cur = await db.execute(
-                "SELECT refused_code FROM sql_queries")
+                "SELECT refused_code, sql_scoped, row_count FROM sql_queries")
             return await cur.fetchall()
 
-    # 拒绝也留痕，否则 A3/A4/A5 无从复盘
-    assert asyncio.run(read()) == [("identity_column",)]
+    # 拒绝也留痕，否则 A3/A4/A5 无从复盘；且拒绝轮不许留下改写后 SQL、
+    # 行数必须是 0——"拒绝时不执行任何 SQL"的可观测证据。
+    assert asyncio.run(read()) == [("identity_column", "", 0)]
