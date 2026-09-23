@@ -9,6 +9,7 @@ class Settings(BaseSettings):
 
     cors_origin: str = "http://localhost:5173"
     navigation_server_dir: Path = Path(__file__).resolve().parent.parent.parent / "mcp_servers" / "navigation"
+    academic_server_dir: Path = Path(__file__).resolve().parent.parent.parent / "mcp_servers" / "academic"
     llm_provider: str = "fake"
     openai_base_url: str = ""
     openai_model: str = ""
@@ -24,6 +25,7 @@ class Settings(BaseSettings):
     fake_student_id: str = "20230001"
     cookie_secure: bool = False
     session_ttl_seconds: int = 43200
+    history_limit: int = 6   # spec 12：6 轮上限，每条另截 200 字
 
 
 @lru_cache

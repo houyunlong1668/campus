@@ -19,7 +19,39 @@ class ToolResult(BaseModel):
 
 class ToolRegistry(Protocol):
     async def list_tools(self) -> list[ToolSpec]: ...
-    async def call_tool(self, name: str, args: dict[str, Any]) -> ToolResult: ...
+    # student_id：服务端注入位（裁决 A：丢弃→校验→注入三步，见各实现的
+    # call_tool）。模型侧 schema 永远看不到这列；CompositeRegistry 分派时透传。
+    async def call_tool(self, name: str, args: dict[str, Any],
+                        student_id: str | None = None) -> ToolResult: ...
+
+
+TRUSTED_ARGS: dict[str, set[str]] = {"run_sql": {"student_id"}}
+
+
+def with_trusted_args(name: str, args: dict[str, Any],
+                      student_id: str | None) -> dict[str, Any]:
+    """一面丢弃、一面注入（spec 7.4）：模型塞的同名字段先被剔掉，
+    再由服务端按会话写入。两面缺一个就有洞。"""
+    trusted = TRUSTED_ARGS.get(name)
+    if not trusted:
+        return args
+    out = {k: v for k, v in args.items() if k not in trusted}
+    if student_id is not None:
+        out["student_id"] = student_id
+    return out
+
+
+def strip_trusted(name: str, schema: dict[str, Any]) -> dict[str, Any]:
+    """给模型看的 schema 必须剔除受信列，否则等于教它"这里有身份列"。"""
+    trusted = TRUSTED_ARGS.get(name)
+    props = schema.get("properties")
+    if not trusted or not props:
+        return schema
+    out = dict(schema)
+    out["properties"] = {k: v for k, v in props.items() if k not in trusted}
+    if "required" in out:
+        out["required"] = [r for r in out["required"] if r not in trusted]
+    return out
 
 
 async def timed_call(fn: Callable[[], Awaitable[Any]]) -> ToolResult:

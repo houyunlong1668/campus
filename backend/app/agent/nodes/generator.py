@@ -15,6 +15,17 @@ async def generator_node(state, provider: LLMProvider, writer: StreamWriter):
 
     stream_state = {**state, "nav_card": nav_card}
 
+    if state.get("needs_clarification") and state.get("clarification"):
+        clarify = state["clarification"]
+        writer(("clarify", clarify))
+        # spec 7.3 规则 3：澄清轮若同时命中跳转（sql_executor 补跑了
+        # resolve_page），卡片照出——"只出 clarify、不出 token"约束的是 token。
+        if nav_card is not None:
+            writer(("nav_card", nav_card))
+        # 只出选项条，不出 token：同一句话既打字又给按钮是重复信号
+        return {"answer": clarify["question"], "nav_card": nav_card,
+                "steps": ["generator"]}
+
     answer_parts: list[str] = []
     async for chunk in provider.stream_answer(state["user_input"], stream_state):
         answer_parts.append(chunk)

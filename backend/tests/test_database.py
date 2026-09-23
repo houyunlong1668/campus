@@ -41,7 +41,7 @@ async def test_迁移按序应用且幂等(tmp_path):
     path.parent.mkdir(parents=True, exist_ok=True)
     db = SqliteDatabase(path)
 
-    assert await run_migrations(db) == [1]      # 首次：应用 0001
+    assert await run_migrations(db) == [1, 2, 3]  # 首次：应用 0001/0002/0003
     assert await run_migrations(db) == []       # 再次：幂等，无新应用
 
     # 九张业务表 + schema_version 都在
@@ -55,7 +55,7 @@ async def test_迁移按序应用且幂等(tmp_path):
 
     # 迁移在 schema_version 留了痕
     versions = await db.fetch_all("SELECT version FROM schema_version ORDER BY version")
-    assert [v["version"] for v in versions] == [1]
+    assert [v["version"] for v in versions] == [1, 2, 3]
 
 
 def test_build_database_按配置选实现():
@@ -137,3 +137,26 @@ async def test_新形状库通过探针(tmp_path):
     db = await init_sqlite(tmp_path / "campus.db")
 
     await assert_current_schema(db)   # 不抛即通过
+
+
+async def test_0002语义视图可查且首列是student_id(tmp_path):
+    """视图必须存在，且 student_id 作为第一列留着给改写器用（spec 4.1），
+    但列集刻意收窄成口语化命名。"""
+    db = await init_sqlite(tmp_path / "campus.db")
+    for view in ("v_grades", "v_schedule", "v_makeup", "v_loans"):
+        await db.fetch_all(f"SELECT * FROM {view} LIMIT 1")
+    rows = await db.fetch_all("PRAGMA table_info(v_grades)")
+    assert [c["name"] for c in rows][0] == "student_id"
+    assert [c["name"] for c in rows][1:] == [
+        "course", "term", "credits", "score", "points", "teacher"]
+
+
+async def test_0003_sql_queries表存在(tmp_path):
+    db = await init_sqlite(tmp_path / "campus.db")
+    await db.execute(
+        "INSERT INTO sql_queries (conversation_id, student_id, sql_raw,"
+        " sql_scoped, refused_code, row_count, latency_ms)"
+        " VALUES (?,?,?,?,?,?,?)",
+        (1, "20230001", "SELECT 1", "SELECT 1", "identity_column", 0, 3))
+    rows = await db.fetch_all("SELECT refused_code FROM sql_queries")
+    assert rows == [{"refused_code": "identity_column"}]

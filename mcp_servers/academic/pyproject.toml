@@ -1,0 +1,23 @@
+[project]
+name = "campus-mcp-academic"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=2.2,<3",
+    "pydantic>=2.7",
+    # guard/rewriter 用了 traverse_scope，仅在 30.x 验证过；下限钉 30 防
+    # uv lock --upgrade 降回 25-29 静默破坏 CTE 作用域豁免（Task 2 minor）
+    "sqlglot>=30",
+    "aiosqlite>=0.20",
+    "aiomysql>=0.2",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
+
+[tool.uv]
+package = false

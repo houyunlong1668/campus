@@ -8,7 +8,7 @@ export const PASSWORD = 'demo1234'
 
 // 计数来自 seed 的实际数据（backend/tests/test_academic_api.py 同源断言）
 export const STUDENTS = {
-  zhou: { id: '20230001', grades: 13, schedule: 12, makeups: 3, loans: 4 },
+  zhou: { id: '20230001', grades: 14, schedule: 12, makeups: 3, loans: 4 },
   chen: { id: '20230002', grades: 6, schedule: 6, makeups: 0, loans: 2 },
 }
 

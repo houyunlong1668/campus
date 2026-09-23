@@ -48,4 +48,36 @@ describe('useChatStream', () => {
     const assistant = messages.value[messages.value.length - 1]
     expect(assistant.error).toBe('recursion_limit: 图超出步数上限')
   })
+
+  it('clarify 事件落到气泡上，选项与问题完整', async () => {
+    stubStream([
+      'event: clarify\ndata: {"question":"你要查哪个学期？","options":[{"label":"2025 秋"},{"label":"2026 春"}]}\n\n',
+      'event: done\ndata: {"message_id":"m2","steps":["router","sql_executor","generator"]}\n\n',
+    ])
+
+    const { messages, send } = useChatStream()
+    await send('我的数据结构成绩')
+
+    const assistant = messages.value[messages.value.length - 1]
+    expect(assistant.clarify?.question).toBe('你要查哪个学期？')
+    expect(assistant.clarify?.options.map((o) => o.label)).toEqual(['2025 秋', '2026 春'])
+    expect(assistant.error).toBeNull()
+  })
+
+  it('sql_result 事件带列、行、行数与 SQL 原文', async () => {
+    stubStream([
+      'event: sql_result\ndata: {"sql":"SELECT course FROM (SELECT * FROM v_grades WHERE student_id = ?) AS v_grades","columns":["course","term"],"rows":[["高等数学（上）","2025 秋"]],"row_count":1,"truncated":false}\n\n',
+      'event: done\ndata: {"message_id":"m3","steps":["router","sql_executor","generator"]}\n\n',
+    ])
+
+    const { messages, send } = useChatStream()
+    await send('我成绩怎么样')
+
+    const assistant = messages.value[messages.value.length - 1]
+    expect(assistant.sqlResult?.columns).toEqual(['course', 'term'])
+    expect(assistant.sqlResult?.rows).toHaveLength(1)
+    expect(assistant.sqlResult?.row_count).toBe(1)
+    expect(assistant.sqlResult?.sql).toContain('student_id = ?')
+    expect(assistant.sqlResult?.truncated).toBe(false)
+  })
 })

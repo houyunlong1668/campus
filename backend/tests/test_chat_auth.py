@@ -138,3 +138,139 @@ def test_不同账号的对话互相独立(env):
         return [r[0] for r in rows]
 
     assert asyncio.run(read()) == ["20230001", "20230002"]
+
+
+@pytest.fixture
+def sql_env(tmp_path):
+    """带 describe_schema/run_sql 的最小链路。
+    这里用 InMemory 假 run_sql 而不是真子进程——本任务只断言
+    "state['sql'] 被落库、拒绝时发 sql_refused 事件"这两条接线；
+    真 academic 子进程的越权语义归 Task 10。"""
+    path = tmp_path / "campus.db"
+
+    async def setup():
+        db = await init_sqlite(path)
+        await seed_students(db)
+        return db
+
+    db = asyncio.run(setup())
+
+    # student_id：TRUSTED_ARGS 让 call_tool 在校验后注入这一参（裁决 A），
+    # 签名只写 sql 会被 timed_call 吞成 ok=False（同 test_graph 的 academic fixture）。
+    async def fake_run_sql(sql: str, student_id: str | None = None):
+        if "student_id='20230007'" in sql:
+            return {"ok": False, "refused_code": "identity_column",
+                    "refused_message": "无需指定身份，系统已按你的账号过滤",
+                    "scoped_sql": "", "columns": [], "rows": [],
+                    "row_count": 0, "latency_ms": 1}
+        return {"ok": True, "refused_code": None, "refused_message": None,
+                "scoped_sql": "SELECT course FROM (SELECT * FROM v_grades"
+                              " WHERE student_id = ?) AS v_grades",
+                "columns": ["course"], "rows": [["高等数学（上）"]],
+                "row_count": 1, "latency_ms": 1}
+
+    async def fake_describe():
+        return [{"name": "v_grades", "columns": ["course", "term"],
+                 "description": "成绩视图"}]
+
+    app = FastAPI()
+    app.state.settings = Settings()
+    app.state.students = build_student_repository(db)
+    app.state.sessions = SessionStore(ttl_seconds=43200)
+    app.state.login_guard = LoginGuard()
+    app.state.provider = FakeProvider()
+    app.state.repository = build_repository(db)
+    app.state.registry = InMemoryRegistry({
+        "describe_schema": {
+            "spec": {"name": "describe_schema", "description": "d",
+                     "input_schema": {"type": "object", "properties": {}}},
+            "fn": fake_describe,
+        },
+        "run_sql": {
+            "spec": {"name": "run_sql", "description": "d",
+                     "input_schema": {"type": "object",
+                                      "properties": {"sql": {"type": "string"}},
+                                      "required": ["sql"]}},
+            "fn": fake_run_sql,
+        },
+    })
+    app.include_router(auth_router)
+    app.include_router(chat_router)
+    return app, path
+
+
+def test_查数成功把scoped_sql落进sql_queries(sql_env):
+    """A1 的落库半边：scoped 必须能看到 student_id = ?——
+    这是"改写真的发生了"的证据，光看返回行数看不出来。"""
+    import asyncio
+    import json  # noqa: F401  （与本文件其它测试的局部 import 风格一致）
+
+    import aiosqlite
+
+    app, path = sql_env
+    with TestClient(app) as c:
+        login(c)
+        text = c.post("/chat", json={"message": "我的高数成绩"}).text
+    assert "event: sql_result" in text
+
+    async def read():
+        async with aiosqlite.connect(path) as db:
+            cur = await db.execute(
+                "SELECT sql_raw, sql_scoped, refused_code, row_count"
+                " FROM sql_queries")
+            return await cur.fetchall()
+
+    rows = asyncio.run(read())
+    assert len(rows) == 1
+    sql_raw, sql_scoped, refused_code, row_count = rows[0]
+    assert "v_grades" in sql_raw                    # 记的是模型原文
+    assert "student_id = ?" in sql_scoped           # 记的是改写后文本
+    assert refused_code is None
+    assert row_count == 1
+
+
+def test_拒绝时发sql_refused错误事件(sql_env):
+    import json
+
+    app, path = sql_env
+
+    class RefusingProvider(FakeProvider):
+        async def generate_sql(self, user_input: str, schema_json: str) -> str:
+            return "SELECT * FROM v_grades WHERE student_id='20230007'"
+
+    app.state.provider = RefusingProvider()
+    with TestClient(app) as c:
+        login(c)
+        text = c.post("/chat", json={"message": "陈默的高数成绩"}).text
+
+    # 把 SSE 的 event/data 成对解出来，别靠子串猜
+    lines = [ln for ln in text.splitlines() if ln]
+    events = []
+    for i, ln in enumerate(lines):
+        if ln.startswith("event: ") and i + 1 < len(lines) \
+                and lines[i + 1].startswith("data: "):
+            events.append((ln[7:], json.loads(lines[i + 1][6:])))
+
+    # 顺序必须钉死，不能只钉 code 集合：拒绝帧要在 done 之前（把它挪到 done
+    # 之后，只断言 code 的写法照样全绿），拒绝轮没有 sql_result，中间的帧
+    # 只许是 generator 的 token（token 有几帧取决于文案长度，故取收尾与
+    # 关键帧断言而非逐帧全等）。
+    kinds = [e for e, _ in events]
+    assert kinds[0] == "tool_call"
+    assert all(k == "token" for k in kinds[1:-2]), kinds
+    assert kinds[-2:] == ["error", "done"]
+    assert [d["code"] for e, d in events if e == "error"] == ["sql_refused"]
+
+    import asyncio
+
+    import aiosqlite
+
+    async def read():
+        async with aiosqlite.connect(path) as db:
+            cur = await db.execute(
+                "SELECT refused_code, sql_scoped, row_count FROM sql_queries")
+            return await cur.fetchall()
+
+    # 拒绝也留痕，否则 A3/A4/A5 无从复盘；且拒绝轮不许留下改写后 SQL、
+    # 行数必须是 0——"拒绝时不执行任何 SQL"的可观测证据。
+    assert asyncio.run(read()) == [("identity_column", "", 0)]

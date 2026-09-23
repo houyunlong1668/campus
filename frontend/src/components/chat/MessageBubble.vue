@@ -3,6 +3,8 @@ import { computed } from 'vue'
 import type { ChatMessage } from '../../composables/useChatStream'
 import { md } from '../../lib/markdown'
 import NavigationCard from './NavigationCard.vue'
+import SqlResultTable from './SqlResultTable.vue'
+import ClarifyBar from './ClarifyBar.vue'
 
 const props = defineProps<{ message: ChatMessage }>()
 const rendered = computed(() => md.render(props.message.text))
@@ -21,6 +23,9 @@ const rendered = computed(() => md.render(props.message.text))
     <div v-if="message.text" class="markdown-body" v-html="rendered" />
 
     <NavigationCard v-if="message.navCard" :card="message.navCard" />
+
+    <SqlResultTable v-if="message.sqlResult" :result="message.sqlResult" />
+    <ClarifyBar v-if="message.clarify" :clarify="message.clarify" />
 
     <p v-if="message.error" class="error">{{ message.error }}</p>
   </div>

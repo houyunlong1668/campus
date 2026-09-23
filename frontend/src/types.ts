@@ -23,6 +23,19 @@ export interface NavCardEvent { path: string; title: string; reason: string }
 export interface DoneEvent { message_id: string; steps: string[]; conversation_id: number | null }
 export interface ErrorEvent { code: string; message: string }
 
+export interface ClarifyOption { label: string }
+export interface ClarifyEvent {
+  question: string
+  options: ClarifyOption[]
+}
+export interface SqlResultEvent {
+  sql: string
+  columns: string[]
+  rows: (string | number | null)[][]
+  row_count: number
+  truncated: boolean
+}
+
 export interface NavCard {
   path: string
   title: string
