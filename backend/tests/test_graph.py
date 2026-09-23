@@ -135,12 +135,21 @@ def academic_registry():
         return {"ok": True, "scoped_sql": sql, "columns": ["course", "term"],
                 "rows": rows, "row_count": len(rows), "refused_code": None}
 
+    # resolve 必须建模"未命中"（真 server 无匹配即 raise）：恒返回 dict 的桩
+    # 会让「平均分」这类纯查数问句也配上卡片，掩盖规则 3 的未命中分支
+    async def fake_resolve(intent: str):
+        if "成绩" in intent:
+            return {"path": "/academic/grades", "title": "成绩查询",
+                    "capabilities": ["查成绩"]}
+        if "重修" in intent or "补考" in intent:
+            return {"path": "/academic/makeup", "title": "补考重修查询",
+                    "capabilities": ["查补考安排", "查看重修报名"]}
+        raise ValueError("no matching page for intent")
+
     return InMemoryRegistry({
         "resolve_page": {"spec": {"name": "resolve_page", "description": "d",
                                   "input_schema": RESOLVE_SCHEMA},
-                         "fn": lambda intent: {"path": "/academic/grades",
-                                               "title": "成绩查询",
-                                               "capabilities": ["查成绩"]}},
+                         "fn": fake_resolve},
         "describe_schema": {"spec": {"name": "describe_schema", "description": "d",
                                      "input_schema": {"type": "object", "properties": {}}},
                             "fn": lambda: [{"name": "v_grades", "columns": ["course", "term"]}]},
@@ -193,6 +202,24 @@ class Test三态分流:
         assert final["route"] == "query"
         assert final["tool_results"].get("resolve_page")   # sql_executor 先补跑了
         assert collected["nav_card"]["path"] == "/academic/grades"
+
+    async def test_真模型选run_sql时_query轮仍补跑resolve出卡片(self, academic_registry):
+        """用户实测「我有几门需要重修」无卡片：真 provider 对计数问句的
+        function-calling 选中 run_sql，旧条件 tool_name=="resolve_page"
+        为假 → 从不补跑 → tool_results 空 → 无卡片。规则 3 的补跑是
+        输入驱动的——provider 选了谁都要把跳转意图问一次 resolve_page。"""
+        class RunSqlProvider(FakeProvider):
+            async def route(self, user_input, tools):
+                return RouteDecision(intent=user_input, tool_name="run_sql",
+                                     tool_args={"sql": "SELECT 1"},
+                                     confidence=1.0)
+
+        graph = build_graph(RunSqlProvider(), academic_registry)
+        collected, final = await run_graph(graph, "我有几门需要重修")
+        assert final["route"] == "query"
+        assert final["steps"] == ["router", "sql_executor", "generator"]
+        assert final["tool_results"].get("resolve_page")
+        assert collected["nav_card"]["path"] == "/academic/makeup"
 
     async def test_都不像走answer(self, registry):
         graph = build_graph(FakeProvider(), registry)

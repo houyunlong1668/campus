@@ -43,18 +43,28 @@ async def sql_executor_node(state, registry: ToolRegistry,
     """
     tool_results: dict = dict(state.get("tool_results") or {})
 
+    # spec 7.3 规则 3：补跑 resolve_page 是**输入驱动**的，不看 provider 选了
+    # 谁。真模型的 function-calling 对计数问句（「我有几门需要重修」）会选中
+    # run_sql，旧条件 tool_name=="resolve_page" 为假 → 从不补跑 → 无卡片
+    # （fake 恰好关键词命中才一直没暴露）。resolve 未命中（真 server raise →
+    # ok=False）不登记、不发状态条：纯聚合问句「我这学期平均分多少」不配卡片，
+    # 由 test_取数意图 钉住。
     if state.get("tool_name") == "resolve_page":
-        nav = await registry.call_tool("resolve_page", state["tool_args"],
-                                       student_id=state["student_id"])
-        # stdio MCP 恒返 JSON 字符串、InMemory 给 dict——与 tool_executor 同款
-        # 判别：str 才 loads；解析失败照它打成"工具返回非 JSON"，卡片自然不出。
-        if nav.ok and isinstance(nav.data, str):
-            try:
-                nav = nav.model_copy(update={"data": json.loads(nav.data)})
-            except json.JSONDecodeError:
-                nav = nav.model_copy(update={"ok": False, "error": "工具返回非 JSON"})
+        resolve_args = state["tool_args"]
+    else:
+        resolve_args = {"intent": _sql_input(state)}  # 裸学期词轮沿用上下文拼接
+    nav = await registry.call_tool("resolve_page", resolve_args,
+                                   student_id=state["student_id"])
+    # stdio MCP 恒返 JSON 字符串、InMemory 给 dict——与 tool_executor 同款
+    # 判别：str 才 loads；解析失败照它打成"工具返回非 JSON"，卡片自然不出。
+    if nav.ok and isinstance(nav.data, str):
+        try:
+            nav = nav.model_copy(update={"data": json.loads(nav.data)})
+        except json.JSONDecodeError:
+            nav = nav.model_copy(update={"ok": False, "error": "工具返回非 JSON"})
+    if nav.ok and isinstance(nav.data, dict):   # 真命中才登记并发状态条
         tool_results["resolve_page"] = nav.model_dump()
-        writer(("tool_call", {"name": "resolve_page", "args": state["tool_args"],
+        writer(("tool_call", {"name": "resolve_page", "args": resolve_args,
                               "ok": nav.ok, "error": nav.error,
                               "latency_ms": nav.latency_ms}))
 
