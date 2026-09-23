@@ -38,14 +38,22 @@ class FakeProvider:
         return sql + " ORDER BY term"
 
     async def stream_answer(self, user_input: str, state: dict[str, Any]) -> AsyncIterator[str]:
+        # 分支次序即优先级：error 要先于一切（拒绝轮必须说人话解释拒绝，
+        # 不能被卡片/表格盖住）；有查数结果时表格就是答案，话术给读数引导，
+        # 否则「有表却说我还不会」（澄清第二轮无 nav_card，正是这条旧症状）。
         nav = state.get("nav_card")
         error = state.get("error")
-        if nav:
-            text = (f"已为你找到「{nav['title']}」页面。点击下方卡片即可跳转，"
-                    f"你也可以在页面内查看详细内容。")
-        elif error:
+        sql = state.get("sql")
+        if error:
             text = (f"这次调用没有成功（{error}）。你可以换个说法再试一次，"
                     f"或者直接前往对应栏目手动查询。")
+        elif sql is not None:
+            n = sql.get("row_count") or 0
+            text = ("没有查到符合条件的记录。" if n == 0
+                    else f"已查到 {n} 条记录，见下方表格。")
+        elif nav:
+            text = (f"已为你找到「{nav['title']}」页面。点击下方卡片即可跳转，"
+                    f"你也可以在页面内查看详细内容。")
         else:
             text = ("我还不会回答这类问题。目前我可以帮你查课表、成绩、补考安排，"
                     "或者提供图书馆服务入口。")

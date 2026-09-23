@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 
 from langgraph.types import StreamWriter
 
@@ -7,6 +8,25 @@ from ...llm.base import LLMProvider
 from ...tools.base import ToolRegistry
 
 logger = logging.getLogger("campus-agent.sql_executor")
+
+_BARE_TERM_RE = re.compile(r"^\s*20\d{2}\s*(?:春|秋|夏|冬)\s*$")
+
+
+def _sql_input(state) -> str:
+    """裸学期词要拼回最近一条用户原话再交给 generate_sql。
+
+    ClarifyBar 点选项只 send(label)（Task 9 实现、spec 7.2 约定），第二轮
+    user_input 是纯「2025 秋」——不拼上下文，课程过滤就丢了：用户问的是
+    数据结构，回来的是整学期全表。spec 7.3 的叙事「history 里上一句就是
+    问句」落点在此，provider 签名不动（fake 与真模型两侧同时受益）。
+    """
+    user_input = state["user_input"]
+    if not _BARE_TERM_RE.match(user_input):
+        return user_input
+    last_user = next(
+        (m.get("content", "") for m in reversed(state.get("history") or [])
+         if m.get("role") == "user"), "")
+    return f"{last_user} {user_input}".strip() if last_user else user_input
 
 
 async def _emit(writer: StreamWriter, result) -> None:
@@ -49,7 +69,8 @@ async def sql_executor_node(state, registry: ToolRegistry,
             schema_res = schema_res.model_copy(update={"ok": False, "error": "工具返回非 JSON"})
     schema = schema_res.data if schema_res.ok else []
 
-    raw_sql = await provider.generate_sql(state["user_input"], json.dumps(schema, ensure_ascii=False))
+    raw_sql = await provider.generate_sql(_sql_input(state),
+                                          json.dumps(schema, ensure_ascii=False))
     result = await registry.call_tool("run_sql", {"sql": raw_sql},
                                       student_id=state["student_id"])
     payload = result.data if isinstance(result.data, dict) else {}

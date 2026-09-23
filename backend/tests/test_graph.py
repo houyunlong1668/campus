@@ -38,11 +38,12 @@ def registry():
     )
 
 
-async def run_graph(graph, user_input: str):
+async def run_graph(graph, user_input: str, history: list | None = None):
     collected = {"tokens": [], "nav_card": None, "custom": []}
     final = None
     async for mode, payload in graph.astream(
-        {"user_input": user_input, "student_id": "20230001", "history": [],
+        {"user_input": user_input, "student_id": "20230001",
+         "history": history or [],
          "intent": None, "route": None, "tool_name": None, "tool_args": {},
          "tool_results": {}, "answer": "", "nav_card": None,
          "needs_clarification": False, "clarification": None, "sql": None,
@@ -223,6 +224,25 @@ class Test澄清:
         assert second["clarification"] is None
         assert [r[1] for r in second["sql"]["rows"]] == ["2025 秋"]   # 只剩该学期
         assert second["error"] is None
+
+    async def test_裸学期标签第二轮_仿ClarifyBar只发label(self, academic_registry):
+        """生产 ClarifyBar 点选项只 send(label)——第二轮 user_input 是裸
+        「2025 秋」，原话只在服务端 history 里。路由须凭学期词进 query、
+        上下文须从 history 拼回，否则掉 answer 兜底/丢课程过滤。
+        上一条用例喂的是 label+原话拼接，测不到这条真实生产路径。"""
+        graph = build_graph(FakeProvider(), academic_registry)
+        history = [
+            {"role": "user", "content": "我的数据结构成绩"},
+            {"role": "assistant", "content": "你要查哪个学期？"},
+        ]
+        collected, final = await run_graph(graph, "2025 秋", history=history)
+        assert final["route"] == "query"
+        assert final["steps"] == ["router", "sql_executor", "generator"]
+        assert final["needs_clarification"] is False      # 不再追问
+        assert final["error"] is None
+        assert final["sql"]["rows"] and all(r[1] == "2025 秋" for r in final["sql"]["rows"])
+        # 回答不是兜底话术（掉 answer 的旧症状）
+        assert not any("我还不会" in t for t in collected["tokens"])
 
 
 class Test真MCP路径:

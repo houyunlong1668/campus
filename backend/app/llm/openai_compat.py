@@ -83,6 +83,16 @@ class OpenAICompatProvider:
         tool_note = ""
         for name, result in (state.get("tool_results") or {}).items():
             tool_note += f"\n工具 {name} 返回: {json.dumps(result.get('data'), ensure_ascii=False)}"
+        # 查数结果只在 state["sql"]、不在 tool_results——不给模型看行数据，
+        # 它按 ANSWER_SYSTEM「不要编造」就没法回答澄清第二轮（历史里只有
+        # 问句没有分数），只能拒绝作答或瞎编。
+        sql = state.get("sql")
+        if sql and sql.get("columns"):
+            tool_note += ("\n查询结果"
+                          + json.dumps({"columns": sql.get("columns"),
+                                        "rows": sql.get("rows") or [],
+                                        "row_count": sql.get("row_count")},
+                                       ensure_ascii=False))
         messages = [{"role": "system", "content": ANSWER_SYSTEM}]
         for h in (state.get("history") or []):
             if h.get("role") in ("user", "assistant") and h.get("content"):
