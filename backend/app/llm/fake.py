@@ -1,7 +1,8 @@
 import asyncio
 import re
-from typing import Any, AsyncIterator
+from typing import AsyncIterator
 
+from ..agent.state import AgentState
 from ..tools.base import ToolSpec
 from .base import RouteDecision
 
@@ -52,7 +53,7 @@ class FakeProvider:
             sql += f" AND term = '{term}'"
         return sql + " ORDER BY term"
 
-    async def stream_answer(self, user_input: str, state: dict[str, Any]) -> AsyncIterator[str]:
+    async def stream_answer(self, user_input: str, state: AgentState) -> AsyncIterator[str]:
         # 分支次序即优先级：error 要先于一切（拒绝轮必须说人话解释拒绝，
         # 不能被卡片/表格盖住）；有查数结果时表格就是答案，话术给读数引导，
         # 否则「有表却说我还不会」（澄清第二轮无 nav_card，正是这条旧症状）。

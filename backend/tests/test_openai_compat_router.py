@@ -17,13 +17,16 @@ def _resp(*tool_calls):
 
 
 def _call(name: str, arguments: str):
-    return SimpleNamespace(function=SimpleNamespace(name=name, arguments=arguments))
+    # type 字段镜像真实 API 的联合判别键（Function|Custom 按 type 收窄）
+    return SimpleNamespace(type="function",
+                           function=SimpleNamespace(name=name, arguments=arguments))
 
 
 def _provider(resp) -> OpenAICompatProvider:
     p = OpenAICompatProvider(base_url="http://x", model="m", api_key="k")
     completions = SimpleNamespace(create=lambda **kw: _aiter(resp))
-    p.client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    p.client = SimpleNamespace(  # type: ignore[assignment]
+        chat=SimpleNamespace(completions=completions))
     return p
 
 

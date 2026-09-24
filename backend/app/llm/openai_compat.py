@@ -1,8 +1,10 @@
 import json
-from typing import Any, AsyncIterator
+from typing import AsyncIterator
 
 from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletionMessageParam
 
+from ..agent.state import AgentState
 from ..tools.base import ToolSpec
 from .base import RouteDecision
 
@@ -53,8 +55,11 @@ class OpenAICompatProvider:
         )
         msg = resp.choices[0].message
         if msg.tool_calls:
+            # tool_calls 是 Function|Custom 联合（按 type 判别）：Custom 型没有
+            # .function，必须先收窄再取 name（类型检查与真实 API 两层保险）
             actionable = [c for c in msg.tool_calls
-                          if c.function.name not in _EXPLORE_TOOLS]
+                          if c.type == "function"
+                          and c.function.name not in _EXPLORE_TOOLS]
             call = actionable[0] if actionable else None
             if call is not None:
                 try:
@@ -79,7 +84,7 @@ class OpenAICompatProvider:
                 text = text[3:]
         return text.strip()
 
-    async def stream_answer(self, user_input: str, state: dict[str, Any]) -> AsyncIterator[str]:
+    async def stream_answer(self, user_input: str, state: AgentState) -> AsyncIterator[str]:
         tool_note = ""
         for name, result in (state.get("tool_results") or {}).items():
             tool_note += f"\n工具 {name} 返回: {json.dumps(result.get('data'), ensure_ascii=False)}"
@@ -93,10 +98,16 @@ class OpenAICompatProvider:
                                         "rows": sql.get("rows") or [],
                                         "row_count": sql.get("row_count")},
                                        ensure_ascii=False))
-        messages = [{"role": "system", "content": ANSWER_SYSTEM}]
+        messages: list[ChatCompletionMessageParam] = [
+            {"role": "system", "content": ANSWER_SYSTEM}]
         for h in (state.get("history") or []):
-            if h.get("role") in ("user", "assistant") and h.get("content"):
-                messages.append({"role": h["role"], "content": h["content"]})
+            role, content = h.get("role"), h.get("content")
+            # 分支收窄到精确字面量 role，字典才能匹配 ChatCompletionMessageParam 联合
+            if content and role in ("user", "assistant"):
+                if role == "user":
+                    messages.append({"role": "user", "content": content})
+                else:
+                    messages.append({"role": "assistant", "content": content})
         messages.append({"role": "user",
                          "content": f"用户问: {user_input}{tool_note}"})
         if state.get("error"):
