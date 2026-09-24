@@ -25,6 +25,8 @@ backend/data/
 
 # 工具产物（代理/技能锁/SDD 台账/worktree）
 .qoder/
+.agents/
+.claude/
 skills-lock.json
 .superpowers/
 .worktrees/
