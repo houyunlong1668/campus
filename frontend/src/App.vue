@@ -36,9 +36,9 @@ const todayLabel = computed(() => {
     <header class="signplate">
       <div class="signplate-inner">
         <div class="brand">
-          <span class="crest">岭</span>
+          <span class="crest">蹲</span>
           <span class="brand-text">
-            <strong>南岭大学</strong>
+            <strong>家里蹲大学</strong>
             <em>教务系统 · 学生端</em>
           </span>
         </div>
