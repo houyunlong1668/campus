@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 
 from langgraph.types import StreamWriter
 
@@ -9,6 +10,7 @@ logger = logging.getLogger("campus-agent.tool_executor")
 
 
 async def tool_executor_node(state, registry: ToolRegistry, writer: StreamWriter):
+    start = time.perf_counter()
     name = state["tool_name"]
     # Task 5 起：会话学号从 state 侧取、服务端注入（模型侧 schema 看不见这列）。
     result = await registry.call_tool(name, state["tool_args"],
@@ -32,4 +34,7 @@ async def tool_executor_node(state, registry: ToolRegistry, writer: StreamWriter
         "tool_results": {name: result.model_dump() | ({"data": data} if data else {})},
         "error": None if result.ok else result.error,
         "steps": ["tool_executor"],
+        "step_details": [{"node": "tool_executor",
+                          "latency_ms": int((time.perf_counter() - start) * 1000),
+                          "detail": {"tool_name": name, "ok": result.ok}}],
     }

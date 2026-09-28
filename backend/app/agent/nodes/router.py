@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 
 from ...llm.base import LLMProvider
 from ...tools.base import ToolRegistry
@@ -24,9 +25,13 @@ def _route_of(user_input: str, tool_name: str | None) -> str:
 
 
 async def router_node(state, provider: LLMProvider, registry: ToolRegistry):
+    start = time.perf_counter()
     tools = await registry.list_tools()
     decision = await provider.route(state["user_input"], tools)
     known = {t.name for t in tools}
+    step_details = [{"node": "router",
+                     "latency_ms": int((time.perf_counter() - start) * 1000),
+                     "detail": {"tool_name": decision.tool_name}}]
     if decision.tool_name is not None and decision.tool_name not in known:
         logger.warning("LLM 幻觉工具已拦截: %s", decision.tool_name)
         return {
@@ -36,6 +41,7 @@ async def router_node(state, provider: LLMProvider, registry: ToolRegistry):
             "tool_args": {},
             "error": f"未知工具: {decision.tool_name}",
             "steps": ["router"],
+            "step_details": step_details,
         }
     return {
         "intent": decision.intent,
@@ -43,4 +49,5 @@ async def router_node(state, provider: LLMProvider, registry: ToolRegistry):
         "tool_name": decision.tool_name,
         "tool_args": decision.tool_args,
         "steps": ["router"],
+        "step_details": step_details,
     }

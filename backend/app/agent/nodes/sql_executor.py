@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import time
 
 from langgraph.types import StreamWriter
 
@@ -41,6 +42,7 @@ async def sql_executor_node(state, registry: ToolRegistry,
     规则 3（query 与 navigate 并存）在这里先补跑 resolve_page，
     让 tool_results 就位，generator 的 nav_card 逻辑一行都不用改。
     """
+    start = time.perf_counter()
     tool_results: dict = dict(state.get("tool_results") or {})
 
     # spec 7.3 规则 3：补跑 resolve_page 是**输入驱动**的，不看 provider 选了
@@ -112,11 +114,23 @@ async def sql_executor_node(state, registry: ToolRegistry,
         if clarify:
             return {"tool_results": tool_results, "sql": sql_state,
                     "needs_clarification": True, "clarification": clarify,
-                    "error": None, "steps": ["sql_executor"]}
+                    "error": None, "steps": ["sql_executor"],
+                    "sql_history": [sql_state],
+                    "step_details": [{"node": "sql_executor",
+                                      "latency_ms": int((time.perf_counter() - start) * 1000),
+                                      "detail": {"sql": raw_sql[:200],
+                                                 "row_count": sql_state["row_count"],
+                                                 "refused_code": sql_state["refused_code"]}}]}
 
     return {"tool_results": tool_results, "sql": sql_state,
             "needs_clarification": False, "clarification": None,
-            "error": error, "steps": ["sql_executor"]}
+            "error": error, "steps": ["sql_executor"],
+            "sql_history": [sql_state],
+            "step_details": [{"node": "sql_executor",
+                              "latency_ms": int((time.perf_counter() - start) * 1000),
+                              "detail": {"sql": raw_sql[:200],
+                                         "row_count": sql_state["row_count"],
+                                         "refused_code": sql_state["refused_code"]}}]}
 
 
 def _maybe_clarify(payload: dict, user_input: str) -> dict | None:

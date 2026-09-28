@@ -59,9 +59,12 @@ async def chat(request: ChatRequest, req: Request,
         # 图内的"会话"即学号：节点不需要知道身份从哪来
         "student_id": student.student_id,
         "history": history,
-        "intent": None, "route": None, "tool_name": None, "tool_args": {},
+        "intent": None, "route": None, "orchestration": None, "write": None,
+        "orchestration_phase": None, "branch": None, "next_query": None,
+        "tool_name": None, "tool_args": {},
         "tool_results": {}, "answer": "", "nav_card": None,
         "needs_clarification": False, "clarification": None, "sql": None,
+        "sql_history": [], "confirm_card": None, "step_details": [],
         "steps": [], "error": None,
     }
 
@@ -96,6 +99,7 @@ async def chat(request: ChatRequest, req: Request,
                     tool_call=build_record(state),
                     steps=state.get("steps", []),
                     sql=sql_record,
+                    step_details=state.get("step_details") or [],
                 )
             except Exception:
                 logger.exception("request_id=%s 落库失败（不中断对话流）", request_id)

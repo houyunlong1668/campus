@@ -27,7 +27,8 @@ class ConversationRepository(Protocol):
                               assistant_text: str,
                               tool_call: ToolCallRecord | None,
                               steps: list[str],
-                              sql: SqlQueryRecord | None = None) -> int | None: ...
+                              sql: SqlQueryRecord | None = None,
+                              step_details: list[dict] | None = None) -> int | None: ...
 
     async def recent_history(self, *, student_id: str,
                              limit: int) -> list[dict[str, str]]: ...
@@ -41,7 +42,8 @@ class DbConversationRepository:
                               assistant_text: str,
                               tool_call: ToolCallRecord | None,
                               steps: list[str],
-                              sql: SqlQueryRecord | None = None) -> int | None:
+                              sql: SqlQueryRecord | None = None,
+                              step_details: list[dict] | None = None) -> int | None:
         conv_id = await self._db.execute(
             "INSERT INTO conversations(student_id) VALUES (?)", (student_id,))
         await self._db.execute(
@@ -55,11 +57,12 @@ class DbConversationRepository:
         if tool_call is not None:
             await self._db.execute(
                 """INSERT INTO tool_calls
-                   (conversation_id, tool_name, args_json, ok, error, latency_ms, steps_json)
-                   VALUES (?,?,?,?,?,?,?)""",
+                   (conversation_id, tool_name, args_json, ok, error, latency_ms, steps_json, step_details_json)
+                   VALUES (?,?,?,?,?,?,?,?)""",
                 (conv_id, tool_call.tool_name, tool_call.args_json,
                  int(tool_call.ok), tool_call.error, tool_call.latency_ms,
-                 json.dumps(steps, ensure_ascii=False)),
+                 json.dumps(steps, ensure_ascii=False),
+                 json.dumps(step_details or [], ensure_ascii=False)),
             )
         if sql is not None:
             await self._db.execute(
