@@ -41,7 +41,7 @@ async def test_迁移按序应用且幂等(tmp_path):
     path.parent.mkdir(parents=True, exist_ok=True)
     db = SqliteDatabase(path)
 
-    assert await run_migrations(db) == [1, 2, 3]  # 首次：应用 0001/0002/0003
+    assert await run_migrations(db) == [1, 2, 3, 4]  # 首次：应用 0001–0004
     assert await run_migrations(db) == []       # 再次：幂等，无新应用
 
     # 九张业务表 + schema_version 都在
@@ -51,11 +51,12 @@ async def test_迁移按序应用且幂等(tmp_path):
     assert {
         "students", "courses", "enrollments", "course_sections", "makeup_items",
         "library_loans", "conversations", "messages", "tool_calls", "schema_version",
+        "makeup_registrations",
     } <= names
 
     # 迁移在 schema_version 留了痕
     versions = await db.fetch_all("SELECT version FROM schema_version ORDER BY version")
-    assert [v["version"] for v in versions] == [1, 2, 3]
+    assert [v["version"] for v in versions] == [1, 2, 3, 4]
 
 
 def test_build_database_按配置选实现():
@@ -160,3 +161,28 @@ async def test_0003_sql_queries表存在(tmp_path):
         (1, "20230001", "SELECT 1", "SELECT 1", "identity_column", 0, 3))
     rows = await db.fetch_all("SELECT refused_code FROM sql_queries")
     assert rows == [{"refused_code": "identity_column"}]
+
+
+async def test_0004_step_details列与补考报名表(tmp_path):
+    """step_details_json 列存在且有 SQLite 侧 DDL 默认值 '[]'；makeup_registrations
+    带 UNIQUE(student_id, course_code)，重复报名被挡（/confirm 幂等的地基）。"""
+    db = await init_sqlite(tmp_path / "campus.db")
+
+    rows = await db.fetch_all("PRAGMA table_info(tool_calls)")
+    col = next(c for c in rows if c["name"] == "step_details_json")
+    assert col["notnull"] == 1 and col["dflt_value"] == "'[]'"
+
+    await db.execute("INSERT INTO students (student_id, name, password_hash)"
+                     " VALUES ('20230001', '周晓楠', 'x')")
+    await db.execute(
+        "INSERT INTO makeup_registrations (student_id, course_code, course_name)"
+        " VALUES ('20230001', 'MATH2041', '高等数学（下）')")
+    rows = await db.fetch_all(
+        "SELECT student_id, course_code, course_name, kind FROM makeup_registrations")
+    assert rows == [{"student_id": "20230001", "course_code": "MATH2041",
+                     "course_name": "高等数学（下）", "kind": "补考"}]
+
+    with pytest.raises(Exception):  # UNIQUE(student_id, course_code) 挡重复报名
+        await db.execute(
+            "INSERT INTO makeup_registrations (student_id, course_code, course_name)"
+            " VALUES ('20230001', 'MATH2041', '高等数学（下）')")
