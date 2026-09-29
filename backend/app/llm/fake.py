@@ -2,6 +2,8 @@ import asyncio
 import re
 from typing import AsyncIterator
 
+from ..agent.plan import (OrchestrationPlan, PlanBundle, ThresholdCondition,
+                          WriteIntent)
 from ..agent.state import AgentState
 from ..tools.base import ToolSpec
 from .base import RouteDecision
@@ -12,6 +14,11 @@ _ROUTE_KEYWORDS = ("课表", "课程", "上什么课", "选课", "成绩", "分�
 
 _SQL_KEYWORDS = {"高数": "高等数学", "高等数学": "高等数学", "数据结构": "数据结构"}
 _TERMS = ("2025 秋", "2026 春")   # 只这一条判定：用户点选项后文本里带学期 → 收窄
+
+# 报名意图：课程短语 → 课程代码（fake 的确定性词典，与 _SQL_KEYWORDS 同风格）
+_REGISTER_COURSES = {"大学物理": "PHY1031", "高等数学": "MATH2041",
+                     "体育": "PE1011", "概率论": "MATH2042"}
+_ORCHESTRATE_HINTS = ("不及格", "低于", "如果", "就告诉", "就提醒")
 
 # 词典外的具体课程（「我的计算机导论成绩」）从问句尾部抠课程短语，否则 kw=None
 # → SQL 不带 course 过滤 → 全表 14 行都回来，用户看到的是一堆无关项。
@@ -40,6 +47,12 @@ class FakeProvider:
         学期那一句是澄清闭环的必需品：没有它，第二轮仍返回跨学期结果，
         澄清会无限追问——spec 9.2 的"两轮收敛"测的就是这里。"""
         kw = next((v for k, v in _SQL_KEYWORDS.items() if k in user_input), None)
+        # 裁决 R2：词典课程优先于补考分支——旗舰输入「查我上学期高数成绩，
+        # 不及格就告诉我补考时间」同时含"高数"与"补考"，第一轮必须查分数
+        # （v_grades）grader 才有 score 列可判；kw 落空（如 followup 轮
+        # 「我的补考和重修时间安排」）才查补考安排（v_makeup）。
+        if kw is None and "补考" in user_input:
+            return "SELECT course, kind, scheduled_at, place, status FROM v_makeup"
         if kw is None:
             m = _SUBJECT_RE.match(user_input.strip())
             if m and not any(c in m.group(1) for c in _BAD_SUBJECT_CHARS) \
@@ -52,6 +65,30 @@ class FakeProvider:
         if term:
             sql += f" AND term = '{term}'"
         return sql + " ORDER BY term"
+
+    async def plan(self, user_input: str, route: str) -> PlanBundle:
+        """编排二次判断（裁决 1：route 之后的独立方法）。
+        只有 query 才可能挂条件分支（navigate 与纯取数零开销）；
+        写意图与 route 无关——报名语句自带写目的，路由反转由 Task 6 的
+        `_route_of(..., write)` 完成（裁决 R3）。"""
+        if route == "query" and any(h in user_input for h in _ORCHESTRATE_HINTS):
+            return PlanBundle(orchestration=OrchestrationPlan(
+                condition=ThresholdCondition(column="score", op="lt", value=60),
+                followup_user_input="我的补考和重修时间安排"))
+        if "报名" in user_input:
+            for phrase, code in _REGISTER_COURSES.items():
+                if phrase in user_input:
+                    return PlanBundle(write=WriteIntent(
+                        course_code=code, course_name=phrase,
+                        summary=f"为「{phrase}」提交补考/重修报名"))
+        return PlanBundle()
+
+    async def judge(self, condition_text: str, evidence: dict) -> bool:
+        """LLM 模式的 fake 兜底：行里任一数值低于 60 即 True。"""
+        for row in evidence.get("rows") or []:
+            if any(isinstance(v, (int, float)) and v < 60 for v in row):
+                return True
+        return False
 
     async def stream_answer(self, user_input: str, state: AgentState) -> AsyncIterator[str]:
         # 分支次序即优先级：error 要先于一切（拒绝轮必须说人话解释拒绝，

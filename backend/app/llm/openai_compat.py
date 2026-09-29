@@ -4,6 +4,7 @@ from typing import AsyncIterator
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
+from ..agent.plan import OrchestrationPlan, PlanBundle, WriteIntent
 from ..agent.state import AgentState
 from ..tools.base import ToolSpec
 from .base import RouteDecision
@@ -29,6 +30,17 @@ SQL_SYSTEM = (
     "四个视图，绝不出现 student_id 列，绝不写多条语句。"
     "输出只含 SQL 文本本身，不要解释、不要 markdown 代码块。"
 )
+
+PLAN_SYSTEM = (
+    "你是编排规划器。判断这句用户输入是否需要：a) 条件分支（先查数，满足条件再追加一个取数问题）；"
+    "b) 写操作确认（补考/重修报名）。只输出 JSON："
+    '{"orchestration": {"condition": {"mode": "threshold", "column": "score", "op": "lt", "value": 60}'
+    ' | {"mode": "llm", "condition_text": "..."}, "followup_user_input": "..."} | null, '
+    '"write": {"course_code": "...", "course_name": "...", "summary": "..."} | null}。'
+    "没有把握就全 null。阈值条件只用于分数类列。"
+)
+
+JUDGE_SYSTEM = "你是条件判定器。只回答 true 或 false，不要任何其他字符。"
 
 
 class OpenAICompatProvider:
@@ -83,6 +95,35 @@ class OpenAICompatProvider:
             if text.startswith("sql"):
                 text = text[3:]
         return text.strip()
+
+    async def plan(self, user_input: str, route: str) -> PlanBundle:
+        if route not in ("query", "answer"):
+            return PlanBundle()
+        if not any(h in user_input for h in ("不及格", "低于", "如果", "报名", "重修", "补考")):
+            return PlanBundle()   # 触发词闸：无关消息零额外调用
+        resp = await self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "system", "content": PLAN_SYSTEM},
+                      {"role": "user", "content": user_input}],
+            response_format={"type": "json_object"},
+        )
+        try:
+            data = json.loads(resp.choices[0].message.content or "{}")
+            return PlanBundle(
+                orchestration=OrchestrationPlan(**data["orchestration"])
+                if data.get("orchestration") else None,
+                write=WriteIntent(**data["write"]) if data.get("write") else None)
+        except (json.JSONDecodeError, KeyError, ValueError):
+            return PlanBundle()   # 计划坏了就当没有：降级为单轮，不阻断对话
+
+    async def judge(self, condition_text: str, evidence: dict) -> bool:
+        resp = await self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "system", "content": JUDGE_SYSTEM},
+                      {"role": "user", "content": f"条件：{condition_text}\n"
+                        f"数据：{json.dumps(evidence, ensure_ascii=False)}"}],
+        )
+        return (resp.choices[0].message.content or "").strip().lower().startswith("true")
 
     async def stream_answer(self, user_input: str, state: AgentState) -> AsyncIterator[str]:
         tool_note = ""
