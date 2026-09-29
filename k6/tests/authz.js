@@ -30,9 +30,28 @@ export default function () {
     'chat 的 401 不是 422': (r) => r.status !== 422,
   })
 
+  // S4 新端点：无 Cookie 同样 401（会话是身份唯一来源）。
+  // 必须排在首次 login 之前——jar 惰性创建，login 后 jar 持有 sid Cookie，
+  // 之后再打就不是"无 Cookie"了。
+  const noCookieConfirm = post('/confirm', { action_id: 'x'.repeat(32) })
+  check(noCookieConfirm, {
+    '未登录打 /confirm 是 401': (r) => r.status === 401,
+  })
+
+  const noCookieReplay = post('/replay', null)
+  check(noCookieReplay, {
+    '未登录打 /replay 是 401': (r) => r.status === 401,
+  })
+
   // 2) 登录后在请求体塞身份/会话标识 → 422（extra="forbid"）
   const ok = login(STUDENTS.zhou.id)
   check(ok, { '登录 200': (r) => r.status === 200 })
+
+  // 登录后打不存在的动作：404（不区分不存在/过期/别人——k6 只验状态码）
+  const confirmMissing = post('/confirm', { action_id: '0'.repeat(32) })
+  check(confirmMissing, {
+    'confirm 不存在动作是 404': (r) => r.status === 404,
+  })
 
   const withStudent = post('/chat',
     { message: '查成绩', student_id: '20230007' }, { timeout: '30s' })
