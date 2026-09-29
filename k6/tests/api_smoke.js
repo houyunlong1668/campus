@@ -30,7 +30,8 @@ export default function () {
   const grades = json(get('/api/grades', 'grades'))
   check(grades, {
     'grades 顶层键只有 grades': (b) => keysOf(b) === '["grades"]',
-    'grades 13 行': (b) => b && b.grades.length === STUDENTS.zhou.grades,
+    // 标签走模板字符串自同步（裁决 R7）：曾因写死数字与 env.js 失联成 13/14/15 三个值
+    [`grades ${STUDENTS.zhou.grades} 行`]: (b) => b && b.grades.length === STUDENTS.zhou.grades,
     '成绩行键集合同': (b) => b && b.grades.length > 0 &&
       JSON.stringify(Object.keys(b.grades[0]).sort()) ===
         '["code","credits","name","score","term"]',
@@ -48,7 +49,7 @@ export default function () {
   const makeup = json(get('/api/makeup', 'makeup'))
   check(makeup, {
     'makeup 顶层键只有 items': (b) => keysOf(b) === '["items"]',
-    'makeup 3 条': (b) => b && b.items.length === STUDENTS.zhou.makeups,
+    [`makeup ${STUDENTS.zhou.makeups} 条`]: (b) => b && b.items.length === STUDENTS.zhou.makeups,
     '补考行键集合同': (b) => b && b.items.length > 0 &&
       JSON.stringify(Object.keys(b.items[0]).sort()) ===
         '["code","course","place","reason","seats","status","type","when"]',
