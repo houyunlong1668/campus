@@ -33,6 +33,8 @@ class ConversationRepository(Protocol):
     async def recent_history(self, *, student_id: str,
                              limit: int) -> list[dict[str, str]]: ...
 
+    async def latest_trace(self, *, student_id: str) -> dict | None: ...
+
 
 class DbConversationRepository:
     def __init__(self, db: Database):
@@ -90,6 +92,29 @@ class DbConversationRepository:
             " ORDER BY m.id DESC LIMIT ?", (student_id, limit))
         rows.reverse()   # 取的是最近 limit 条，要翻回时间升序给模型读
         return [{"role": r["role"], "content": str(r["content"])[:200]} for r in rows]
+
+    async def latest_trace(self, *, student_id: str) -> dict | None:
+        """该学生最近一次落库的执行轨迹（tool_calls 行），供 /replay 回放展示。
+
+        身份只来自会话传入的 student_id——按本人过滤且只取最新一条（LIMIT 1），
+        别人的记录永远查不到（会话隔离）。steps/step_details 与 /chat 的 done.steps
+        同源（同一次 record_exchange 落的 steps_json/step_details_json）。
+        """
+        rows = await self._db.fetch_all(
+            "SELECT t.tool_name, t.args_json, t.ok, t.latency_ms,"
+            " t.steps_json, t.step_details_json, t.created_at"
+            " FROM tool_calls t JOIN conversations c ON c.id = t.conversation_id"
+            " WHERE c.student_id = ? ORDER BY t.id DESC LIMIT 1", (student_id,))
+        if not rows:
+            return None
+        r = rows[0]
+        return {"steps": json.loads(r["steps_json"]),
+                "step_details": json.loads(r["step_details_json"] or "[]"),
+                "tool_name": r["tool_name"],
+                "args": json.loads(r["args_json"]),
+                "ok": bool(r["ok"]),
+                "latency_ms": int(r["latency_ms"]),
+                "created_at": str(r["created_at"])}
 
 
 def build_repository(db: Database) -> ConversationRepository:

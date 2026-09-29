@@ -16,6 +16,7 @@ from app.api.academic import router as academic_router  # noqa: E402
 from app.api.auth import router as auth_router  # noqa: E402
 from app.api.chat import router as chat_router  # noqa: E402
 from app.api.confirm import router as confirm_router  # noqa: E402
+from app.api.replay import router as replay_router  # noqa: E402
 from app.auth.rate_limit import LoginGuard  # noqa: E402
 from app.auth.session import SessionStore  # noqa: E402
 from app.auth.students import build_student_repository  # noqa: E402
@@ -62,6 +63,7 @@ def client(tmp_path):
     app.include_router(auth_router)
     app.include_router(academic_router)
     app.include_router(confirm_router)
+    app.include_router(replay_router)  # Task 7：/replay 从同一 fixture 打
     app.include_router(chat_router)
     with TestClient(app) as c:
         yield c
@@ -218,3 +220,29 @@ class Test确认链路端到端:
             "SELECT COUNT(*) AS n FROM makeup_registrations"
             " WHERE student_id = '20230001' AND course_code = 'MATH2041'"))
         assert rows[0]["n"] == 1
+
+
+class Test回放:
+    """POST /replay（Task 7）：回放最近一次执行的节点序列与每步参数耗时。
+    helper 与测试均同步，与本文件既有风格一致（简报注 4）。"""
+
+    def test_回放与刚跑的对话一致(self, client):
+        login(client, "20230001")
+        # 裁决 R4（注 1）：必须是能落 tool_calls 行的输入——「我这学期平均分多少」
+        # 不过 FakeProvider 的 _ROUTE_KEYWORDS → tool_name=None → 不落行 → 必 404
+        events = _chat_events(client, "查我这学期成绩")
+        # 注 2：_chat_events 的 data 已 json.loads 成 dict，直接取，不二次解析
+        done = next(e["data"] for e in events if e["event"] == "done")
+        r = client.post("/replay")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["steps"] == done["steps"]            # 与 steps_json 同源（验收 3）
+        assert [s["node"] for s in body["step_details"]] == done["steps"]
+        assert all(isinstance(s["latency_ms"], int) for s in body["step_details"])
+        assert body["tool_name"] == "resolve_page"       # 与 build_record 落行语义一致
+
+    def test_无记录返回404(self, client):
+        # 注 3：每测试独立 tmp_path 新库、seed 不灌 tool_calls；
+        # 不 login 是 401 不是 404，必须先登录再断言 404
+        login(client, "20230001")
+        assert client.post("/replay").status_code == 404

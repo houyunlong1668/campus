@@ -9,6 +9,7 @@ from .api.academic import router as academic_router
 from .api.auth import router as auth_router
 from .api.chat import router as chat_router
 from .api.confirm import router as confirm_router
+from .api.replay import router as replay_router
 from .auth.rate_limit import LoginGuard
 from .auth.session import SessionStore
 from .auth.students import build_student_repository, seed_students
@@ -88,6 +89,7 @@ def create_app() -> FastAPI:
     app.include_router(chat_router)
     app.include_router(academic_router)
     app.include_router(confirm_router)
+    app.include_router(replay_router)
 
     return app
 
