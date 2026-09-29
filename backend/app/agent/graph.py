@@ -4,13 +4,15 @@ from langgraph.types import StreamWriter
 from ..llm.base import LLMProvider
 from ..tools.base import ToolRegistry
 from .nodes.generator import generator_node
+from .nodes.grader import grader_node
 from .nodes.router import router_node
 from .nodes.sql_executor import sql_executor_node
 from .nodes.tool_executor import tool_executor_node
 from .state import AgentState
 
 
-def build_graph(provider: LLMProvider, registry: ToolRegistry):
+def build_graph(provider: LLMProvider, registry: ToolRegistry,
+                pending_actions=None):          # Task 6 用，本任务恒为 None
     async def router(state: AgentState):
         return await router_node(state, provider, registry)
 
@@ -20,6 +22,9 @@ def build_graph(provider: LLMProvider, registry: ToolRegistry):
     async def sql_executor(state: AgentState, writer: StreamWriter):
         return await sql_executor_node(state, registry, provider, writer)
 
+    async def grader(state: AgentState, writer: StreamWriter):
+        return await grader_node(state, provider, writer)
+
     async def generator(state: AgentState, writer: StreamWriter):
         return await generator_node(state, provider, writer)
 
@@ -27,15 +32,30 @@ def build_graph(provider: LLMProvider, registry: ToolRegistry):
     workflow.add_node("router", router)
     workflow.add_node("tool_executor", tool_executor)
     workflow.add_node("sql_executor", sql_executor)
+    workflow.add_node("grader", grader)
     workflow.add_node("generator", generator)
     workflow.add_edge(START, "router")
     workflow.add_conditional_edges(
         "router",
         lambda state: state["route"],
         {"navigate": "tool_executor", "query": "sql_executor",
-         "answer": "generator", None: "generator"},
+         "answer": "generator", "write": "generator",   # Task 6 改指 confirm_preparer
+         None: "generator"},
     )
     workflow.add_edge("tool_executor", "generator")
-    workflow.add_edge("sql_executor", "generator")
+    # 条件编排：挂了 plan 且还没进 followup 轮 → grader 判分支；
+    # followup 轮（orchestration_phase 已置）不再回 grader——循环守卫的
+    # 图级防线，正常路径到不了 recursion_limit=10
+    workflow.add_conditional_edges(
+        "sql_executor",
+        lambda state: "grader"
+        if (state.get("orchestration") and not state.get("orchestration_phase"))
+        else "generator",
+    )
+    workflow.add_conditional_edges(
+        "grader",
+        lambda state: "sql_executor"
+        if state.get("orchestration_phase") == "followup" else "generator",
+    )
     workflow.add_edge("generator", END)
-    return workflow.compile().with_config(recursion_limit=8)
+    return workflow.compile().with_config(recursion_limit=10)

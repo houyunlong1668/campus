@@ -29,6 +29,10 @@ async def router_node(state, provider: LLMProvider, registry: ToolRegistry):
     tools = await registry.list_tools()
     decision = await provider.route(state["user_input"], tools)
     known = {t.name for t in tools}
+    route = _route_of(state["user_input"], decision.tool_name)
+    # 编排二次判断（Task 4 的 plan()）：route 已定，再问「要不要条件分支/写确认」。
+    # 两个 return 分支都挂——幻觉拦截分支的 route 可能是 query，编排信息不能丢。
+    bundle = await provider.plan(state["user_input"], route)
     step_details = [{"node": "router",
                      "latency_ms": int((time.perf_counter() - start) * 1000),
                      "detail": {"tool_name": decision.tool_name}}]
@@ -36,18 +40,22 @@ async def router_node(state, provider: LLMProvider, registry: ToolRegistry):
         logger.warning("LLM 幻觉工具已拦截: %s", decision.tool_name)
         return {
             "intent": decision.intent,
-            "route": _route_of(state["user_input"], decision.tool_name),
+            "route": route,
             "tool_name": None,
             "tool_args": {},
+            "orchestration": bundle.orchestration,
+            "write": bundle.write,
             "error": f"未知工具: {decision.tool_name}",
             "steps": ["router"],
             "step_details": step_details,
         }
     return {
         "intent": decision.intent,
-        "route": _route_of(state["user_input"], decision.tool_name),
+        "route": route,
         "tool_name": decision.tool_name,
         "tool_args": decision.tool_args,
+        "orchestration": bundle.orchestration,
+        "write": bundle.write,
         "steps": ["router"],
         "step_details": step_details,
     }

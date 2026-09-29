@@ -30,6 +30,35 @@ _BAD_SUBJECT_CHARS = "我你他咱查问想看要这那几哪是否"
 _BAD_SUBJECT_WORDS = ("平均", "多少", "什么", "学期", "所有", "全部")
 
 
+def _read_scores(sql_state: dict) -> str:
+    """sql_state 的 course/score 列读数串，形如
+    「高等数学（上）」91 分、「高等数学（下）」56 分。空 rows 返空串，兜底由调用处给。"""
+    cols = sql_state.get("columns") or []
+    if "course" not in cols or "score" not in cols:
+        return ""
+    ci, si = cols.index("course"), cols.index("score")
+    parts = [f"「{r[ci]}」{r[si]} 分" for r in (sql_state.get("rows") or [])
+             if ci < len(r) and si < len(r)]
+    return "、".join(parts)
+
+
+def _read_makeup(sql_state: dict) -> str:
+    """v_makeup 行读数串：「{course}」{kind} {scheduled_at} {place}，状态 {status}。
+    空 rows / 列不齐返空串，兜底由调用处给。"""
+    cols = sql_state.get("columns") or []
+    need = ("course", "kind", "scheduled_at", "place", "status")
+    if any(c not in cols for c in need):
+        return ""
+    idx = {c: cols.index(c) for c in need}
+    parts = []
+    for r in sql_state.get("rows") or []:
+        if any(i >= len(r) for i in idx.values()):
+            continue
+        parts.append(f"「{r[idx['course']]}」{r[idx['kind']]} {r[idx['scheduled_at']]} "
+                     f"{r[idx['place']]}，状态 {r[idx['status']]}")
+    return "；".join(parts)
+
+
 class FakeProvider:
     """规则式 Provider：无 Key、无网络、结果确定。是行为测试的基线。"""
 
@@ -92,18 +121,29 @@ class FakeProvider:
 
     async def stream_answer(self, user_input: str, state: AgentState) -> AsyncIterator[str]:
         # 分支次序即优先级：error 要先于一切（拒绝轮必须说人话解释拒绝，
-        # 不能被卡片/表格盖住）；有查数结果时表格就是答案，话术给读数引导，
-        # 否则「有表却说我还不会」（澄清第二轮无 nav_card，正是这条旧症状）。
+        # 不能被卡片/表格盖住）；有查数结果时读数就是答案——多轮编排下
+        # 必须遍历 sql_history（followup 轮只看 sql 会丢第一轮的分数，
+        # 验收 1 要求同句同时含分数与补考提示），单轮 sql_history 兜底语义等价。
         nav = state.get("nav_card")
         error = state.get("error")
-        sql = state.get("sql")
+        history = state.get("sql_history") or ([state["sql"]] if state.get("sql") else [])
         if error:
-            text = (f"这次调用没有成功（{error}）。你可以换个说法再试一次，"
-                    f"或者直接前往对应栏目手动查询。")
-        elif sql is not None:
-            n = sql.get("row_count") or 0
-            text = ("没有查到符合条件的记录。" if n == 0
-                    else f"已查到 {n} 条记录，见下方表格。")
+            parts = [f"这次调用没有成功（{error}）。你可以换个说法再试一次，"
+                     f"或者直接前往对应栏目手动查询。"]
+            for s in history:
+                if "score" in (s.get("columns") or []):
+                    parts.append("已查到的分数：" + _read_scores(s))
+            text = "".join(parts)
+        elif history:
+            parts = []
+            for s in history:
+                cols = s.get("columns") or []
+                if "score" in cols:
+                    parts.append(_read_scores(s))
+                elif "scheduled_at" in cols:
+                    parts.append(_read_makeup(s))
+            parts = [p for p in parts if p]   # 空 rows 的读数串丢弃，全空才兜底
+            text = "；".join(parts) if parts else "没有查到符合条件的记录。"
         elif nav:
             text = (f"已为你找到「{nav['title']}」页面。点击下方卡片即可跳转，"
                     f"你也可以在页面内查看详细内容。")

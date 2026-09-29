@@ -41,9 +41,16 @@ async def sql_executor_node(state, registry: ToolRegistry,
     """spec 7.3：describe_schema → 模型写 SQL → run_sql → 澄清判定。
     规则 3（query 与 navigate 并存）在这里先补跑 resolve_page，
     让 tool_results 就位，generator 的 nav_card 逻辑一行都不用改。
+
+    Task 5 编排 followup 轮（orchestration_phase == "followup"，grader 放行
+    的计划内追问）：取数文本换 next_query、不补跑 resolve_page（卡片第一轮
+    已出，重跑是噪音）、不澄清（澄清是给临时追问的，把编排链打断就凑不齐
+    验收 1 的「分数与补考提示同句」）。
     """
     start = time.perf_counter()
     tool_results: dict = dict(state.get("tool_results") or {})
+    phase = state.get("orchestration_phase")
+    query_text = state.get("next_query") or _sql_input(state)
 
     # spec 7.3 规则 3：补跑 resolve_page 是**输入驱动**的，不看 provider 选了
     # 谁。真模型的 function-calling 对计数问句（「我有几门需要重修」）会选中
@@ -51,24 +58,25 @@ async def sql_executor_node(state, registry: ToolRegistry,
     # （fake 恰好关键词命中才一直没暴露）。resolve 未命中（真 server raise →
     # ok=False）不登记、不发状态条：纯聚合问句「我这学期平均分多少」不配卡片，
     # 由 test_取数意图 钉住。
-    if state.get("tool_name") == "resolve_page":
-        resolve_args = state["tool_args"]
-    else:
-        resolve_args = {"intent": _sql_input(state)}  # 裸学期词轮沿用上下文拼接
-    nav = await registry.call_tool("resolve_page", resolve_args,
-                                   student_id=state["student_id"])
-    # stdio MCP 恒返 JSON 字符串、InMemory 给 dict——与 tool_executor 同款
-    # 判别：str 才 loads；解析失败照它打成"工具返回非 JSON"，卡片自然不出。
-    if nav.ok and isinstance(nav.data, str):
-        try:
-            nav = nav.model_copy(update={"data": json.loads(nav.data)})
-        except json.JSONDecodeError:
-            nav = nav.model_copy(update={"ok": False, "error": "工具返回非 JSON"})
-    if nav.ok and isinstance(nav.data, dict):   # 真命中才登记并发状态条
-        tool_results["resolve_page"] = nav.model_dump()
-        writer(("tool_call", {"name": "resolve_page", "args": resolve_args,
-                              "ok": nav.ok, "error": nav.error,
-                              "latency_ms": nav.latency_ms}))
+    if phase != "followup":
+        if state.get("tool_name") == "resolve_page":
+            resolve_args = state["tool_args"]
+        else:
+            resolve_args = {"intent": _sql_input(state)}  # 裸学期词轮沿用上下文拼接
+        nav = await registry.call_tool("resolve_page", resolve_args,
+                                       student_id=state["student_id"])
+        # stdio MCP 恒返 JSON 字符串、InMemory 给 dict——与 tool_executor 同款
+        # 判别：str 才 loads；解析失败照它打成"工具返回非 JSON"，卡片自然不出。
+        if nav.ok and isinstance(nav.data, str):
+            try:
+                nav = nav.model_copy(update={"data": json.loads(nav.data)})
+            except json.JSONDecodeError:
+                nav = nav.model_copy(update={"ok": False, "error": "工具返回非 JSON"})
+        if nav.ok and isinstance(nav.data, dict):   # 真命中才登记并发状态条
+            tool_results["resolve_page"] = nav.model_dump()
+            writer(("tool_call", {"name": "resolve_page", "args": resolve_args,
+                                  "ok": nav.ok, "error": nav.error,
+                                  "latency_ms": nav.latency_ms}))
 
     schema_res = await registry.call_tool("describe_schema", {})
     # 同一套判别：MCP 给 str 就 loads 成 list/dict（否则下面 json.dumps 是
@@ -81,7 +89,7 @@ async def sql_executor_node(state, registry: ToolRegistry,
             schema_res = schema_res.model_copy(update={"ok": False, "error": "工具返回非 JSON"})
     schema = schema_res.data if schema_res.ok else []
 
-    raw_sql = await provider.generate_sql(_sql_input(state),
+    raw_sql = await provider.generate_sql(query_text,
                                           json.dumps(schema, ensure_ascii=False))
     result = await registry.call_tool("run_sql", {"sql": raw_sql},
                                       student_id=state["student_id"])
@@ -110,7 +118,10 @@ async def sql_executor_node(state, registry: ToolRegistry,
                                "rows": sql_state["rows"],
                                "row_count": sql_state["row_count"],
                                "truncated": False}))
-        clarify = _maybe_clarify(payload, state["user_input"])
+        # followup 是计划内追问：结果跨学期也不再澄清，否则编排链被澄清打断，
+        # 验收 1 的「同时含分数与补考提示」出不齐（Step 3 第 4 处）
+        clarify = (_maybe_clarify(payload, state["user_input"])
+                   if phase != "followup" else None)
         if clarify:
             return {"tool_results": tool_results, "sql": sql_state,
                     "needs_clarification": True, "clarification": clarify,
