@@ -134,6 +134,13 @@ class FakeProvider:
                 if "score" in (s.get("columns") or []):
                     parts.append("已查到的分数：" + _read_scores(s))
             text = "".join(parts)
+        elif state.get("confirm_card"):
+            # 写确认轮：error 之后、history 之前（计划语义）。write 轮
+            # sql_history 恒空，顺序上与 history 无实际竞争；卡片事件本身
+            # 由 confirm_preparer 发出，这里只负责话术引导点击。
+            c = state["confirm_card"]
+            text = (f"{c['summary']}。请点击下方确认卡片上的「确认报名」按钮完成操作，"
+                    f"不点击则不会提交。")
         elif history:
             parts = []
             for s in history:

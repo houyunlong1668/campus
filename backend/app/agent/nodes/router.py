@@ -4,6 +4,7 @@ import time
 
 from ...llm.base import LLMProvider
 from ...tools.base import ToolRegistry
+from ..plan import WriteIntent
 
 logger = logging.getLogger("campus-agent.router")
 
@@ -15,8 +16,13 @@ _QUERY_HINTS = ("成绩", "分数", "绩点", "课表", "上课", "在借", "借
 _TERM_RE = re.compile(r"20\d{2}\s*(?:春|秋|夏|冬)")
 
 
-def _route_of(user_input: str, tool_name: str | None) -> str:
-    """spec 7.3：取数优先于跳转（规则 3），都不像才 answer。"""
+def _route_of(user_input: str, tool_name: str | None,
+              write: WriteIntent | None = None) -> str:
+    """spec 7.3：取数优先于跳转（规则 3），都不像才 answer。
+    write 非空时最高优先（裁决 R3）：写意图直接反转到 write 路由，
+    不受「补考」等关键词落进 query 的影响。"""
+    if write is not None:
+        return "write"
     if any(h in user_input for h in _QUERY_HINTS) or _TERM_RE.search(user_input):
         return "query"
     if tool_name == "resolve_page":
@@ -29,10 +35,15 @@ async def router_node(state, provider: LLMProvider, registry: ToolRegistry):
     tools = await registry.list_tools()
     decision = await provider.route(state["user_input"], tools)
     known = {t.name for t in tools}
-    route = _route_of(state["user_input"], decision.tool_name)
-    # 编排二次判断（Task 4 的 plan()）：route 已定，再问「要不要条件分支/写确认」。
-    # 两个 return 分支都挂——幻觉拦截分支的 route 可能是 query，编排信息不能丢。
-    bundle = await provider.plan(state["user_input"], route)
+    # route 与 plan 的鸡生蛋顺序（简报注 1）：final route 依赖 bundle.write，
+    # 而 plan() 要收 route——唯一可行解是「base_route → 一次 plan → 最终 route」。
+    # plan 收 base_route：写意图检测不依赖 route（R3），注册类输入即使
+    # base_route 落 query（「补考」∈ _QUERY_HINTS）照样检出 write。
+    base_route = _route_of(state["user_input"], decision.tool_name)
+    bundle = await provider.plan(state["user_input"], base_route)
+    route = _route_of(state["user_input"], decision.tool_name, bundle.write)
+    # 编排二次判断（Task 4 的 plan()）：两个 return 分支共用同一 bundle 与
+    # 最终 route——幻觉拦截分支也可能带编排/写意图，信息不能丢。plan 只调一次。
     step_details = [{"node": "router",
                      "latency_ms": int((time.perf_counter() - start) * 1000),
                      "detail": {"tool_name": decision.tool_name}}]

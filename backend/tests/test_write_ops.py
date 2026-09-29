@@ -1,5 +1,6 @@
-"""写操作服务与 /confirm 端点：幂等、属主校验、鉴权。"""
+"""写操作服务与 /confirm 端点：幂等、属主校验、鉴权；Task 6 端到端确认链路。"""
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -13,12 +14,16 @@ from seed_academic import seed_academic  # noqa: E402
 
 from app.api.academic import router as academic_router  # noqa: E402
 from app.api.auth import router as auth_router  # noqa: E402
+from app.api.chat import router as chat_router  # noqa: E402
 from app.api.confirm import router as confirm_router  # noqa: E402
 from app.auth.rate_limit import LoginGuard  # noqa: E402
 from app.auth.session import SessionStore  # noqa: E402
 from app.auth.students import build_student_repository  # noqa: E402
 from app.config import Settings  # noqa: E402
 from app.db.migrations import init_sqlite  # noqa: E402
+from app.db.repository import build_repository  # noqa: E402
+from app.llm.fake import FakeProvider  # noqa: E402
+from app.tools.inmemory import InMemoryRegistry  # noqa: E402
 from app.write_ops import PendingActionStore, register_makeup  # noqa: E402
 
 
@@ -35,9 +40,29 @@ def client(tmp_path):
     app.state.sessions = SessionStore(ttl_seconds=43200)
     app.state.login_guard = LoginGuard()
     app.state.pending_actions = PendingActionStore()
+
+    # /chat 四件套（注 2）：照 test_chat_auth 的 env fixture 补——
+    # 缺任一件端到端直接 404/500；加组件不改行为，既有 6 条不受影响。
+    async def fake_resolve(intent: str, params: dict | None = None):
+        return {"path": "/academic/grades", "title": "成绩查询", "capabilities": []}
+
+    app.state.provider = FakeProvider()
+    app.state.repository = build_repository(db)
+    app.state.registry = InMemoryRegistry({
+        "resolve_page": {
+            "spec": {
+                "name": "resolve_page", "description": "解析页面",
+                "input_schema": {"type": "object",
+                                 "properties": {"intent": {"type": "string"}},
+                                 "required": ["intent"]},
+            },
+            "fn": fake_resolve,
+        }
+    })
     app.include_router(auth_router)
     app.include_router(academic_router)
     app.include_router(confirm_router)
+    app.include_router(chat_router)
     with TestClient(app) as c:
         yield c
 
@@ -46,6 +71,22 @@ def login(client, sid):
     """照抄 test_chat_auth.login 的写法，只把学号参数化（本文件要在两个账号间切换）。"""
     assert client.post("/auth/login",
                        json={"student_id": sid, "password": "demo1234"}).status_code == 200
+
+
+def _chat_events(client, message):
+    """同步发 /chat 读全文，按 event:/data: 成对解成 [{event, data}]。
+    解析逻辑照 test_chat_auth 既有写法；同步形态与本文件既有 6 条测试一致
+    （helper 与调用处都不带 await，见简报注 4）。"""
+    r = client.post("/chat", json={"message": message})
+    assert r.status_code == 200
+    lines = [ln for ln in r.text.splitlines() if ln]
+    events = []
+    for i, ln in enumerate(lines):
+        if ln.startswith("event: ") and i + 1 < len(lines) \
+                and lines[i + 1].startswith("data: "):
+            events.append({"event": ln[7:],
+                           "data": json.loads(lines[i + 1][6:])})
+    return events
 
 
 def _confirm(client, course_code, student_id="20230001"):
@@ -135,3 +176,45 @@ def test_动作不存在或属主不符返回404(client):
     # 会话是身份唯一来源：请求体塞 student_id 整包 422（extra="forbid"）
     assert client.post("/confirm", json={"action_id": "x",
                                          "student_id": "20230001"}).status_code == 422
+
+
+class Test确认链路端到端:
+    """Task 6 验收 2 全链路：聊天 → confirm_card →（不点确认则不写）→
+    POST /confirm → 状态翻转。三条都要先 login（注 3）：/chat 与 /api/makeup
+    都依赖会话。"""
+
+    def test_写意图出确认卡且未执行(self, client):
+        login(client, "20230001")
+        events = _chat_events(client, "帮我报名大学物理（上）的补考")
+        card = next((e["data"] for e in events if e["event"] == "confirm_card"), None)
+        assert card is not None and card["action"] == "makeup_register"
+        # 未点确认：库里状态没变
+        items = client.get("/api/makeup").json()["items"]
+        assert next(i for i in items if i["code"] == "PHY1031")["status"] == "已报名"  # seed 本来就是已报名
+        # 换报名中的课程再验「未执行」：MATH2041 出卡但不确认，状态必须仍是「报名中」
+        events2 = _chat_events(client, "帮我报名高等数学（下）的补考")
+        card2 = next(e["data"] for e in events2 if e["event"] == "confirm_card")
+        assert card2["action"] == "makeup_register"
+        items = client.get("/api/makeup").json()["items"]
+        assert next(i for i in items if i["code"] == "MATH2041")["status"] == "报名中"
+
+    def test_点确认后执行并翻转(self, client):
+        login(client, "20230001")
+        events = _chat_events(client, "帮我报名高等数学（下）的补考")
+        card = next(e["data"] for e in events if e["event"] == "confirm_card")
+        r = client.post("/confirm", json={"action_id": card["action_id"]})
+        assert r.status_code == 200 and r.json()["result"]["status"] == "registered"
+        items = client.get("/api/makeup").json()["items"]
+        assert next(i for i in items if i["code"] == "MATH2041")["status"] == "已报名"
+
+    def test_重复点同一卡第二次404(self, client):
+        login(client, "20230001")
+        events = _chat_events(client, "帮我报名高等数学（下）的补考")
+        card = next(e["data"] for e in events if e["event"] == "confirm_card")
+        assert client.post("/confirm", json={"action_id": card["action_id"]}).status_code == 200
+        # 一次性语义：pop 已焚，第二次 404，状态不叠行（registrations 仍 1 行）
+        assert client.post("/confirm", json={"action_id": card["action_id"]}).status_code == 404
+        rows = asyncio.run(client.app.state.db.fetch_all(
+            "SELECT COUNT(*) AS n FROM makeup_registrations"
+            " WHERE student_id = '20230001' AND course_code = 'MATH2041'"))
+        assert rows[0]["n"] == 1
