@@ -5,6 +5,7 @@ import { md } from '../../lib/markdown'
 import NavigationCard from './NavigationCard.vue'
 import SqlResultTable from './SqlResultTable.vue'
 import ClarifyBar from './ClarifyBar.vue'
+import ConfirmCard from './ConfirmCard.vue'
 
 const props = defineProps<{ message: ChatMessage }>()
 const rendered = computed(() => md.render(props.message.text))
@@ -26,6 +27,9 @@ const rendered = computed(() => md.render(props.message.text))
 
     <SqlResultTable v-if="message.sqlResult" :result="message.sqlResult" />
     <ClarifyBar v-if="message.clarify" :clarify="message.clarify" />
+
+    <!-- 注 4 修正形态：只判 confirmCard，不引用被禁的 confirmResult 字段 -->
+    <ConfirmCard v-if="message.confirmCard" :card="message.confirmCard" />
 
     <p v-if="message.error" class="error">{{ message.error }}</p>
   </div>

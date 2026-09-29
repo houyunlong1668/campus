@@ -2,8 +2,8 @@ import { ref } from 'vue'
 import { createSSEParser } from '../lib/sse'
 import { useAuth } from './useAuth'
 import type {
-  ChatRequest, ClarifyEvent, DoneEvent, ErrorEvent, NavCardEvent, SqlResultEvent,
-  TokenEvent, ToolCallEvent,
+  ChatRequest, ClarifyEvent, ConfirmCardEvent, DoneEvent, ErrorEvent, NavCardEvent,
+  SqlResultEvent, TokenEvent, ToolCallEvent,
 } from '../types'
 import type { NavCard } from '../types'
 
@@ -15,6 +15,7 @@ export interface ChatMessage {
   navCard: NavCard | null
   clarify: ClarifyEvent | null
   sqlResult: SqlResultEvent | null
+  confirmCard: ConfirmCardEvent | null
   error: string | null
 }
 
@@ -29,11 +30,11 @@ export function useChatStream() {
     if (streaming.value) return
     messages.value.push({
       id: crypto.randomUUID(), role: 'user', text,
-      toolCall: null, navCard: null, clarify: null, sqlResult: null, error: null,
+      toolCall: null, navCard: null, clarify: null, sqlResult: null, confirmCard: null, error: null,
     })
     messages.value.push({
       id: crypto.randomUUID(), role: 'assistant', text: '',
-      toolCall: null, navCard: null, clarify: null, sqlResult: null, error: null,
+      toolCall: null, navCard: null, clarify: null, sqlResult: null, confirmCard: null, error: null,
     })
     // 必须取数组里的代理再改：直接改 push 前的原始对象不会触发重渲染
     const assistant = messages.value[messages.value.length - 1]
@@ -80,6 +81,8 @@ export function useChatStream() {
             assistant.clarify = JSON.parse(frame.data) as ClarifyEvent
           } else if (frame.event === 'sql_result') {
             assistant.sqlResult = JSON.parse(frame.data) as SqlResultEvent
+          } else if (frame.event === 'confirm_card') {
+            assistant.confirmCard = JSON.parse(frame.data) as ConfirmCardEvent
           } else if (frame.event === 'done') {
             void (JSON.parse(frame.data) as DoneEvent) // steps 留作操作日志面板数据源
           } else if (frame.event === 'error') {
