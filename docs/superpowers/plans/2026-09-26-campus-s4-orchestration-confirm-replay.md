@@ -74,7 +74,7 @@
 - Consumes: 迁移器按文件名排序执行、`assert_current_schema` 校验列集合（既有机制不动）。
 - Produces: `tool_calls.step_details_json TEXT NOT NULL`（代码侧 INSERT 永远写 `'[]'` 或 JSON，不靠 DDL 默认值）；`makeup_registrations(id, student_id, course_code, course_name, kind, created_at)` 带 `UNIQUE(student_id, course_code)`。
 
-- [ ] **Step 1: 写双方言迁移文件**
+- [x] **Step 1: 写双方言迁移文件**
 
 `backend/app/db/migrations/sqlite/0004_step_details_and_registrations.sql`：
 
@@ -108,12 +108,12 @@ CREATE TABLE IF NOT EXISTS makeup_registrations (
 
 注意：MySQL 8.4 的 `TEXT` 不能用字面 DEFAULT（语法限制），所以 `step_details_json` 的默认值 `'[]'` 只放 SQLite 侧，MySQL 侧由代码保证永远显式写入（Task 2 的 repository 修改落实）。`makeup_registrations` 双方言**都不**建外键（与 MySQL 侧 `tool_calls` 等表一致，S2 已裁决 MySQL 迁移不带 FK）。
 
-- [ ] **Step 2: 先跑契约与现有库测试，确认红**
+- [x] **Step 2: 先跑契约与现有库测试，确认红**
 
 Run: `cd backend && ./.venv/Scripts/python.exe -m pytest tests/test_database.py -q`
 Expected: 现有用例 PASS（0004 还没被任何测试引用），契约脚本稍后 Step 5 跑。
 
-- [ ] **Step 3: 改 seed——高等数学（下）56 分 + 对应补考条目**
+- [x] **Step 3: 改 seed——高等数学（下）56 分 + 对应补考条目**
 
 `scripts/seed_academic.py` 的 `ENROLLMENTS` 里找 `("20230001", "MATH2041", ...)`：已存在就把分数改成 56、学期确保为 `2026 春`；不存在就新增一行：
 
@@ -130,7 +130,7 @@ Expected: 现有用例 PASS（0004 还没被任何测试引用），契约脚本
 
 `dt(15, 9)` 与既有写法一致（本月 15 日 09:00 之类，读文件头部确认 `dt` 定义后照抄用法）。「报名中」状态是关键：它是唯一可被 `/confirm` 翻转成「已报名」的状态，旗舰演示与写测试都靠它。
 
-- [ ] **Step 4: 重建本地 SQLite 并灌库，验证数据形状**
+- [x] **Step 4: 重建本地 SQLite 并灌库，验证数据形状**
 
 Run:
 ```bash
@@ -139,17 +139,17 @@ cd backend && DB_BACKEND=sqlite ./.venv/Scripts/python.exe -c "import sqlite3; c
 ```
 Expected: `[('高等数学（下）', 56, '2026 春')]`；`[('高等数学（下）', '报名中')]`；`tool_calls` 列里能看到 `step_details_json`。
 
-- [ ] **Step 5: 跑全量后端测试，处理被 seed 变更钉住的断言**
+- [x] **Step 5: 跑全量后端测试，处理被 seed 变更钉住的断言**
 
 Run: `cd backend && DB_BACKEND=sqlite ./.venv/Scripts/python.exe -m pytest tests -q`
 Expected: 若有失败是旧测试把 20230001 的分数/行数写死了——按新 seed 更新断言（这是裁决 5 认可的测试数据变更），在任务报告里逐条列出改了哪些断言。
 
-- [ ] **Step 6: 跑契约脚本**
+- [x] **Step 6: 跑契约脚本**
 
 Run: `cd backend && ./.venv/Scripts/python.exe ../scripts/check_routes_contract.py`
 Expected: OK（迁移文件名集合双方言一致被自动覆盖）。
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/app/db/migrations/sqlite/0004_step_details_and_registrations.sql backend/app/db/migrations/mysql/0004_step_details_and_registrations.sql scripts/seed_academic.py backend/tests/
@@ -180,7 +180,7 @@ git commit -m "feat(db): 0004 迁移——tool_calls.step_details_json 与 makeu
   - `AgentState` 新字段：`orchestration`、`write`、`orchestration_phase: Literal["followup"] | None`、`branch: str | None`、`next_query: str | None`、`confirm_card: dict | None`、`sql_history: list[dict]`、`step_details: list[dict]`；`tool_results` 改为 `Annotated[dict, _merge_results]`
   - `record_exchange(..., step_details: list[dict] | None = None)`；Protocol 同步加签名。
 
-- [ ] **Step 1: 写编排模型 `backend/app/agent/plan.py`**
+- [x] **Step 1: 写编排模型 `backend/app/agent/plan.py`**
 
 ```python
 from typing import Literal
@@ -219,7 +219,7 @@ class PlanBundle(BaseModel):
     write: WriteIntent | None = None
 ```
 
-- [ ] **Step 2: 写失败测试——tool_results 累加与 step_details 记录**
+- [x] **Step 2: 写失败测试——tool_results 累加与 step_details 记录**
 
 `backend/tests/test_graph.py` 追加（现有 fixture 复用，名字按文件里既有风格）：
 
@@ -237,7 +237,7 @@ def test_每节点都留step_details():
 Run: `cd backend && ./.venv/Scripts/python.exe -m pytest tests/test_graph.py -q`
 Expected: FAIL（`_merge_results` / `step_details` 不存在）。
 
-- [ ] **Step 3: 扩展 `state.py`**
+- [x] **Step 3: 扩展 `state.py`**
 
 ```python
 import operator
@@ -277,7 +277,7 @@ class AgentState(TypedDict):
     error: str | None
 ```
 
-- [ ] **Step 4: 扩展 `llm/base.py` 协议**
+- [x] **Step 4: 扩展 `llm/base.py` 协议**
 
 ```python
 from ..agent.plan import PlanBundle
@@ -295,7 +295,7 @@ class LLMProvider(Protocol):
     def stream_answer(self, user_input: str, state: AgentState) -> AsyncIterator[str]: ...
 ```
 
-- [ ] **Step 5: 四个既有节点补 step_details（sql_history 累加在 sql_executor）**
+- [x] **Step 5: 四个既有节点补 step_details（sql_history 累加在 sql_executor）**
 
 每个节点函数开头 `start = time.perf_counter()`，return 的字典里统一带：
 
@@ -315,7 +315,7 @@ class LLMProvider(Protocol):
 
 `router.py` 的 `_route_of` 保持三态不动——write 路由在 Task 6 加。
 
-- [ ] **Step 6: `repository.py` 落库 step_details**
+- [x] **Step 6: `repository.py` 落库 step_details**
 
 `ConversationRepository` Protocol 与 `DbConversationRepository` 的 `record_exchange` 加关键字参数 `step_details: list[dict] | None = None`；`tool_calls` 的 INSERT 语句加一列：
 
@@ -329,18 +329,18 @@ class LLMProvider(Protocol):
  json.dumps(step_details or [], ensure_ascii=False)),
 ```
 
-- [ ] **Step 7: `api/chat.py` 的 initial_state 与 persist 适配**
+- [x] **Step 7: `api/chat.py` 的 initial_state 与 persist 适配**
 
 `initial_state` 字典补：`"orchestration": None, "write": None, "orchestration_phase": None, "branch": None, "next_query": None, "sql_history": [], "confirm_card": None, "step_details": []`。
 
 `persist()` 里 `record_exchange(..., step_details=state.get("step_details") or [])`。
 
-- [ ] **Step 8: 跑测试**
+- [x] **Step 8: 跑测试**
 
 Run: `cd backend && DB_BACKEND=sqlite ./.venv/Scripts/python.exe -m pytest tests -q`
 Expected: 全 PASS（新增两条 + 既有全部；既有 steps 断言不受影响，step_details 是纯增量）。
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add backend/app/agent/plan.py backend/app/agent/state.py backend/app/llm/base.py backend/app/agent/nodes/ backend/app/db/repository.py backend/app/api/chat.py backend/tests/test_graph.py
@@ -365,7 +365,7 @@ git commit -m "feat(agent): state 扩展——编排计划字段、tool_results 
   - `class PendingActionStore`: `create(student_id, action, params) -> str`、`pop(action_id, student_id) -> PendingAction | None`
   - `POST /confirm` 请求体 `{"action_id": str}`（extra="forbid"）；200 `{"ok": true, "result": {...}}`；404 动作不存在/过期/不属本用户；400 写操作业务失败（如无此课程）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `backend/tests/test_write_ops.py`：
 
@@ -417,7 +417,7 @@ fixture 名字以既有 `backend/tests/` 里 API 测试的实际 fixture 为准�
 Run: `cd backend && ./.venv/Scripts/python.exe -m pytest tests/test_write_ops.py -q`
 Expected: FAIL（模块不存在）。
 
-- [ ] **Step 2: 实现 `write_ops.py`**
+- [x] **Step 2: 实现 `write_ops.py`**
 
 ```python
 """写操作与待确认动作。写一律先经 PendingActionStore 确认（spec §4 /confirm 语义）。"""
@@ -498,7 +498,7 @@ class PendingActionStore:
             del self._items[k]
 ```
 
-- [ ] **Step 3: 实现 `api/confirm.py`**
+- [x] **Step 3: 实现 `api/confirm.py`**
 
 ```python
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -535,16 +535,16 @@ async def confirm(request: ConfirmRequest, req: Request,
     raise HTTPException(status_code=400, detail=f"未知动作: {action.action}")
 ```
 
-- [ ] **Step 4: `main.py` 装配**
+- [x] **Step 4: `main.py` 装配**
 
 lifespan 里 `app.state.sessions = ...` 之后加 `app.state.pending_actions = PendingActionStore()`；`create_app` 里 `app.include_router(confirm_router)`（import 与现有三行同款）。
 
-- [ ] **Step 5: 跑测试**
+- [x] **Step 5: 跑测试**
 
 Run: `cd backend && DB_BACKEND=sqlite ./.venv/Scripts/python.exe -m pytest tests/test_write_ops.py -q`
 Expected: 全 PASS。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/app/write_ops.py backend/app/api/confirm.py backend/app/main.py backend/tests/test_write_ops.py
@@ -568,7 +568,7 @@ git commit -m "feat(confirm): 补考报名写操作 + 待确认动作存储 + PO
   - `FakeProvider.generate_sql` 新增分支：`"补考" in user_input → "SELECT course, kind, scheduled_at, place, status FROM v_makeup"`。
   - `OpenAICompatProvider.plan/judge`：JSON 调用。
 
-- [ ] **Step 1: 写失败测试（fake 规则）**
+- [x] **Step 1: 写失败测试（fake 规则）**
 
 `backend/tests/test_orchestration.py`（文件创建，后续 Task 5 继续往里加）：
 
@@ -607,7 +607,7 @@ class TestFakeSql补考分支:
 Run: `cd backend && ./.venv/Scripts/python.exe -m pytest tests/test_orchestration.py -q`
 Expected: FAIL（`plan`/`judge`/补考分支都不存在）。
 
-- [ ] **Step 2: 实现 `FakeProvider.plan/judge` 与补考 SQL 分支**
+- [x] **Step 2: 实现 `FakeProvider.plan/judge` 与补考 SQL 分支**
 
 `fake.py` 头部加常量：
 
@@ -655,7 +655,7 @@ _ORCHESTRATE_HINTS = ("不及格", "低于", "如果", "就告诉", "就提醒")
             return "SELECT course, kind, scheduled_at, place, status FROM v_makeup"
 ```
 
-- [ ] **Step 3: 实现 `OpenAICompatProvider.plan/judge`**
+- [x] **Step 3: 实现 `OpenAICompatProvider.plan/judge`**
 
 ```python
 PLAN_SYSTEM = (
@@ -701,12 +701,12 @@ async def judge(self, condition_text: str, evidence: dict) -> bool:
     return (resp.choices[0].message.content or "").strip().lower().startswith("true")
 ```
 
-- [ ] **Step 4: 跑测试**
+- [x] **Step 4: 跑测试**
 
 Run: `cd backend && ./.venv/Scripts/python.exe -m pytest tests/test_orchestration.py -q`
 Expected: 全 PASS。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/llm/fake.py backend/app/llm/openai_compat.py backend/tests/test_orchestration.py
@@ -733,7 +733,7 @@ git commit -m "feat(llm): provider 编排能力——fake 规则与真模型 pla
   - 图边：`router→{navigate:tool_executor, query:sql_executor, answer:generator, write:generator(Task 6 前暂指 generator), None:generator}`；`sql_executor→{有 orchestration 且 phase 空:grader, 否则:generator}`；`grader→{phase=="followup":sql_executor, 否则:generator}`；`tool_executor→generator` 不变。
   - 旗舰 steps 序列钉死：`[router, sql_executor, grader, sql_executor, generator]`。
 
-- [ ] **Step 1: 写失败测试——旗舰 then 分支全链路**
+- [x] **Step 1: 写失败测试——旗舰 then 分支全链路**
 
 `backend/tests/test_orchestration.py` 追加（fixture 复用 `test_graph.py` 的 InMemory 注册表 + FakeProvider 跑真图的既有写法）：
 
@@ -774,7 +774,7 @@ class Test旗舰编排:
 Run: `cd backend && ./.venv/Scripts/python.exe -m pytest tests/test_orchestration.py -q`
 Expected: 新增用例 FAIL（grader/图边不存在）。
 
-- [ ] **Step 2: 实现 `grader.py`**
+- [x] **Step 2: 实现 `grader.py`**
 
 ```python
 import logging
@@ -837,7 +837,7 @@ async def grader_node(state, provider: LLMProvider, writer: StreamWriter):
     return out
 ```
 
-- [ ] **Step 3: sql_executor 支持 phase/next_query**
+- [x] **Step 3: sql_executor 支持 phase/next_query**
 
 `sql_executor_node` 三处改动：
 
@@ -848,7 +848,7 @@ async def grader_node(state, provider: LLMProvider, writer: StreamWriter):
 
 return 里已有 `sql_history`（Task 2 加的）保持不变。
 
-- [ ] **Step 4: router 把 plan 挂进 state**
+- [x] **Step 4: router 把 plan 挂进 state**
 
 `router_node` 里 `route = _route_of(...)` 算好后（两个 return 分支都要）调用：
 
@@ -858,7 +858,7 @@ return 里已有 `sql_history`（Task 2 加的）保持不变。
 
 两个分支的返回字典都加 `"orchestration": bundle.orchestration, "write": bundle.write`。幻觉拦截分支同样挂（它 route 可能是 query，编排信息不丢）。
 
-- [ ] **Step 5: 图重构 `graph.py`**
+- [x] **Step 5: 图重构 `graph.py`**
 
 ```python
 def build_graph(provider: LLMProvider, registry: ToolRegistry,
@@ -889,7 +889,7 @@ def build_graph(provider: LLMProvider, registry: ToolRegistry,
 
 （write 分支 Task 6 前暂时指 generator——本任务不存在 write 路由，留位即可。）
 
-- [ ] **Step 6: 两个 provider 的 stream_answer 读 sql_history**
+- [x] **Step 6: 两个 provider 的 stream_answer 读 sql_history**
 
 fake.py：error/sql 分支改为先看 `sql_history`——
 
@@ -930,12 +930,12 @@ openai_compat.py：`stream_answer` 里把现有 `sql` 单块 tool_note 改成循
                                            ensure_ascii=False))
 ```
 
-- [ ] **Step 7: 跑测试**
+- [x] **Step 7: 跑测试**
 
 Run: `cd backend && DB_BACKEND=sqlite ./.venv/Scripts/python.exe -m pytest tests -q`
 Expected: 全 PASS（含既有 117；旗舰链路 InMemory 的 `run_sql` 分流按新测试实现）。
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/app/agent/nodes/grader.py backend/app/agent/graph.py backend/app/agent/nodes/router.py backend/app/agent/nodes/sql_executor.py backend/app/llm/fake.py backend/app/llm/openai_compat.py backend/tests/test_orchestration.py
@@ -962,7 +962,7 @@ git commit -m "feat(agent): grader 条件分支（阈值/LLM 双模式）+ 失�
   - SSE 新事件 `confirm_card`；generator 在 `state["confirm_card"]` 非空时话术引导用户点击。
   - 验收 2 全链路：发「帮我报名大学物理（上）的补考」→ 流里出现 `confirm_card` 事件且**未**执行写（makeup 状态不变）→ POST /confirm → 状态翻转「已报名」。
 
-- [ ] **Step 1: 写失败测试——端到端确认链路**
+- [x] **Step 1: 写失败测试——端到端确认链路**
 
 `backend/tests/test_write_ops.py` 追加：
 
@@ -995,11 +995,11 @@ class Test确认链路端到端:
 Run: `cd backend && ./.venv/Scripts/python.exe -m pytest tests/test_write_ops.py -q`
 Expected: 新用例 FAIL（confirm_card 事件不存在）。
 
-- [ ] **Step 2: `router.py` 加 write 路由判定**
+- [x] **Step 2: `router.py` 加 write 路由判定**
 
 `_route_of` 改签名 `_route_of(user_input, tool_name, write) -> str`：开头加 `if write is not None: return "write"`；`router_node` 里先取 bundle 再算 route（Task 5 已调 plan，把它提前到 route 计算之前，一次调用两用）。
 
-- [ ] **Step 3: 实现 `confirm_preparer.py`**
+- [x] **Step 3: 实现 `confirm_preparer.py`**
 
 ```python
 import time
@@ -1029,13 +1029,13 @@ async def confirm_preparer_node(state, store: PendingActionStore,
                                          "course_code": intent.course_code}}]}
 ```
 
-- [ ] **Step 4: graph 接线 + chat.py 传 store**
+- [x] **Step 4: graph 接线 + chat.py 传 store**
 
 `graph.py`：`workflow.add_node("confirm_preparer", confirm_preparer)`；write 边改成 `"write": "confirm_preparer"`（Task 5 的占位 `if False else` 表达式删掉）；`build_graph` 的 `pending_actions=None` 默认参数保留，节点闭包里 `store = pending_actions`，若 None 用模块级 `PendingActionStore()` 兜底（图测试不传 store 也能跑）。`add_edge("confirm_preparer", "generator")`。
 
 `chat.py`：`graph = build_graph(provider, registry, req.app.state.pending_actions)`。
 
-- [ ] **Step 5: generator 与 fake 话术**
+- [x] **Step 5: generator 与 fake 话术**
 
 `generator.py`：`stream_state = {**state, "nav_card": nav_card}` 已带 confirm_card（state 全量透传）——确认分支只影响 answer 文案，事件已由 confirm_preparer 发出，generator 无需再发。无代码改动，**但要确认 clarify 分支不受 confirm_card 干扰**（write 路由不会带 clarification，天然隔离，测试钉住即可）。
 
@@ -1048,12 +1048,12 @@ async def confirm_preparer_node(state, store: PendingActionStore,
                     f"不点击则不会提交。")
 ```
 
-- [ ] **Step 6: 跑测试**
+- [x] **Step 6: 跑测试**
 
 Run: `cd backend && DB_BACKEND=sqlite ./.venv/Scripts/python.exe -m pytest tests -q`
 Expected: 全 PASS。
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/app/agent/nodes/confirm_preparer.py backend/app/agent/graph.py backend/app/agent/nodes/router.py backend/app/agent/nodes/generator.py backend/app/llm/fake.py backend/app/api/chat.py backend/tests/test_write_ops.py
@@ -1076,7 +1076,7 @@ git commit -m "feat(agent): write 路由与 confirm_preparer——写操作先�
   - `ConversationRepository.latest_trace(*, student_id) -> dict | None`：`{"steps": list[str], "step_details": list[dict], "tool_name": str, "args": dict, "ok": bool, "latency_ms": int, "created_at": str}`
   - `POST /replay`（require_student）→ 200 上述 dict；404 无记录。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 class Test回放:
@@ -1097,7 +1097,7 @@ class Test回放:
 Run: `cd backend && ./.venv/Scripts/python.exe -m pytest tests/test_write_ops.py -q`
 Expected: FAIL（端点 404/405）。
 
-- [ ] **Step 2: `repository.py` 加 `latest_trace`**
+- [x] **Step 2: `repository.py` 加 `latest_trace`**
 
 Protocol 与实现都加：
 
@@ -1122,7 +1122,7 @@ Protocol 与实现都加：
                 "created_at": str(r["created_at"])}
 ```
 
-- [ ] **Step 3: `api/replay.py`**
+- [x] **Step 3: `api/replay.py`**
 
 ```python
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -1145,12 +1145,12 @@ async def replay(req: Request, student: Student = Depends(require_student)):
 
 `main.py` 挂 router。
 
-- [ ] **Step 4: 跑测试**
+- [x] **Step 4: 跑测试**
 
 Run: `cd backend && DB_BACKEND=sqlite ./.venv/Scripts/python.exe -m pytest tests -q`
 Expected: 全 PASS。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/api/replay.py backend/app/db/repository.py backend/app/main.py backend/tests/
@@ -1175,7 +1175,7 @@ git commit -m "feat(replay): POST /replay 回放最近一次执行的节点序�
   - `ConfirmCard.vue` props `{ card: ConfirmCardEvent }`，内联确认按钮 → `POST /confirm` → 成功显示 result，失败/401 显示错误文案。
   - ChatBox 顶部「回放上次执行」按钮 → `POST /replay` → `<details>` 面板列 steps + 每步 latency_ms。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `frontend/tests/confirmCard.test.ts`：
 
@@ -1212,7 +1212,7 @@ describe('ConfirmCard', () => {
 Run: `cd frontend && npx vitest run tests/confirmCard.test.ts`
 Expected: FAIL（组件不存在）。
 
-- [ ] **Step 2: types.ts + useChatStream**
+- [x] **Step 2: types.ts + useChatStream**
 
 types.ts 加 `ConfirmCardEvent`（形状见 Interfaces）；`DoneEvent` 不动。
 
@@ -1224,7 +1224,7 @@ useChatStream：`ChatMessage` 加两个字段（`send()` 里两处 push 的对�
           }
 ```
 
-- [ ] **Step 3: ConfirmCard.vue**
+- [x] **Step 3: ConfirmCard.vue**
 
 ```vue
 <script setup lang="ts">
@@ -1279,7 +1279,7 @@ async function confirm() {
 </style>
 ```
 
-- [ ] **Step 4: MessageBubble / MessageList 挂确认卡**
+- [x] **Step 4: MessageBubble / MessageList 挂确认卡**
 
 `MessageBubble.vue`：`import ConfirmCard from './ConfirmCard.vue'`；模板里在 navCard/clarify 同层加：
 
@@ -1291,7 +1291,7 @@ async function confirm() {
 
 `useChatStream.ts` 的 `ChatMessage` **不加** `confirmResult`，只加 `confirmCard: ConfirmCardEvent | null`（Step 2 那行写成两个字段的以本步为准：只加一个）。
 
-- [ ] **Step 5: ChatBox 回放面板**
+- [x] **Step 5: ChatBox 回放面板**
 
 `ChatBox.vue`（读现有结构后加，约 30 行）：头部工具区加按钮「回放上次执行」+ 本地 state：
 
@@ -1309,12 +1309,12 @@ async function replay() {
 
 模板：`<details v-if="replayOpen">` 里表格两列——节点名、耗时 ms——行序即 `replayTrace.step_details`；空数组时一句提示文案。样式跟 ChatBox 既有面板走。
 
-- [ ] **Step 6: 跑前端测试与类型检查**
+- [x] **Step 6: 跑前端测试与类型检查**
 
 Run: `cd frontend && npx vitest run && npx vue-tsc --noEmit`
 Expected: 全 PASS（22 既有 + 新增；既有快照/结构断言若因 ChatMessage 新字段报错，按新形状更新）。
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add frontend/src/types.ts frontend/src/composables/useChatStream.ts frontend/src/components/chat/ frontend/tests/
@@ -1334,7 +1334,7 @@ git commit -m "feat(front): 确认卡组件、confirm_card 事件接线与执行
 - Consumes: Task 3 的 `/confirm`、Task 7 的 `/replay`、Task 5 的旗舰编排 steps。
 - Produces: authz.js 新增两组断言；sse_chat.js 新增旗舰用例断言 `steps` 含 `grader`。
 
-- [ ] **Step 1: authz.js 加 /confirm 与 /replay**
+- [x] **Step 1: authz.js 加 /confirm 与 /replay**
 
 在既有「无 Cookie → 401」分组照抄风格加：
 
@@ -1361,7 +1361,7 @@ git commit -m "feat(front): 确认卡组件、confirm_card 事件接线与执行
 
 helper 名字以 `k6/lib/helpers.js` 既有为准，别新造。
 
-- [ ] **Step 2: sse_chat.js 加旗舰编排用例**
+- [x] **Step 2: sse_chat.js 加旗舰编排用例**
 
 新 default 函数内一个 `group`（fake provider 下全程本地、无 LLM 调用）：
 
@@ -1378,12 +1378,12 @@ helper 名字以 `k6/lib/helpers.js` 既有为准，别新造。
 
 `chatAndCollectSteps`：若文件里已有 SSE 收集 helper 就复用（读现有 `sse_chat.js` 按它的 parser 写法）；没有就抽一个 20 行内的：POST /chat → 读 body → 按行扫 `event: done` 后 `data:` 的 `steps` 数组 `JSON.parse`。
 
-- [ ] **Step 3: 全量跑 k6**
+- [x] **Step 3: 全量跑 k6**
 
 Run: `bash scripts/run_k6.sh`
 Expected: 四门全过（脚本自身会起 fake+sqlite 后端在 8300 端口；本地 8000/5173 若占着不影响）。
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add k6/tests/authz.js k6/tests/sse_chat.js
@@ -1398,27 +1398,27 @@ git commit -m "test(k6): /confirm /replay 鉴权断言与旗舰编排 SSE 序列
 - Modify: 本计划文件（勾选回填）
 - Test: 全部既有测试 + k6 + 手测
 
-- [ ] **Step 1: 后端全量**
+- [x] **Step 1: 后端全量**
 
 Run: `cd backend && DB_BACKEND=sqlite ./.venv/Scripts/python.exe -m pytest tests -q`
 Expected: 全 PASS（117 既有 + S4 新增）。
 
-- [ ] **Step 2: 前端全量 + 类型**
+- [x] **Step 2: 前端全量 + 类型**
 
 Run: `cd frontend && npx vitest run && npx vue-tsc --noEmit`
 Expected: 全 PASS。
 
-- [ ] **Step 3: 契约脚本**
+- [x] **Step 3: 契约脚本**
 
 Run: `cd backend && ./.venv/Scripts/python.exe ../scripts/check_routes_contract.py`
 Expected: OK。
 
-- [ ] **Step 4: k6 全量**
+- [x] **Step 4: k6 全量**
 
 Run: `bash scripts/run_k6.sh`
 Expected: 全过。
 
-- [ ] **Step 5: 验收五条逐条核对（每条给出证据位置）**
+- [x] **Step 5: 验收五条逐条核对（每条给出证据位置）**
 
 1. **旗舰编排**：问「查我上学期高数成绩，不及格就告诉我补考时间」→ 答案同时含分数与补考提示 + 跳转卡片；steps 含 grader。证据：`test_orchestration.py::Test旗舰编排`（图级）+ `sse_chat.js` 旗舰 group（HTTP 级）+ 手测（起真前后端，浏览器看卡片与补考文本同在）。
 2. **写操作未确认不执行 / 无 Cookie 401**：`test_write_ops.py::Test确认链路端到端` + `authz.js` confirm 401/404 两组。
@@ -1426,7 +1426,7 @@ Expected: 全过。
 4. **降级**：`test_orchestration.py::test_失败降级保留已成功结果`——第二个工具 ok=False，答案含第一轮分数 + 失败说明，steps 收尾 generator。
 5. **死循环截断**：`test_orchestration.py::test_循环守卫_grader只放行一次`——构造 followup 自触发编排的输入，断言 grader 恰好一次、序列有限、正常收尾；`recursion_limit=10` 为兜底。
 
-- [ ] **Step 6: 手测三项（起真服务，fake 与真模型各一遍旗舰问句）**
+- [x] **Step 6: 手测三项（起真服务，fake 与真模型各一遍旗舰问句）**
 
 ```bash
 # 终端 1（main 仓库根）
@@ -1440,11 +1440,11 @@ cd frontend && npm run dev
 - 点 ChatBox「回放上次执行」→ 面板列出五步序列与每步耗时 → 截图。
 - 真模型（`LLM_PROVIDER=openai_compat`，Key 在 backend/.env）：同一旗舰问句再跑一遍，答案措辞不同但语义一致（含分数与补考信息）；截图存证。
 
-- [ ] **Step 7: 回填计划勾选与执行记录**
+- [x] **Step 7: 回填计划勾选与执行记录**
 
 把本文所有 `- [ ]` 勾成 `- [x]`；在本文件末尾追加「## 执行记录」：逐任务的提交哈希、测试计数、评审结论与裁决引用（含本计划 Header 的五条裁决是否在执行中被修订）。
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-09-26-campus-s4-orchestration-confirm-replay.md
@@ -1460,3 +1460,38 @@ git commit -m "docs(plan): S4 计划回填勾选与执行记录"
 3. **占位符扫描**：任务内代码块均为完整实现或完整测试骨架；`...` 只出现在「按既有 fixture/helper 照抄」处（此类必须在执行时先读被引用的文件再写，不许留空函数体）。
 4. **类型一致性**：`PlanBundle/OrchestrationPlan/WriteIntent/ThresholdCondition/LlmCondition` 定义于 Task 2 Step 1，Task 4/5/6 引用同名；`PendingActionStore.create/pop` 定义 Task 3，Task 6 confirm_preparer 与 chat.py 使用同名同签名；`record_exchange(step_details=...)` Task 2 定，chat.py Task 2 Step 7 用；`latest_trace` Task 7 定，replay.py 用。`grader` SSE 事件 Task 5 发，前端不消费（信息已进 step_details 回放面板）——一致，无孤儿事件。
 5. **已知风险**：seed 变更可能钉住旧断言（Task 1 Step 5 专门处理）；`followup` 轮跨学期结果不再澄清（Task 5 Step 3，裁决记录：编排内追问打断链路比歧义代价大）；真模型 `plan()` 多一次调用仅触发词命中时发生（Task 4）。
+
+---
+
+## 执行记录
+
+> 执行方式：子代理逐任务（用户 2026-09-26 选定），控制器逐任务评审 + 裁决。台账与评审包在 `.superpowers/sdd/2026-09-26-campus-s4-orchestration-confirm-replay/`（progress.md / task-N-report / review-*.diff / shots）。基线 main `696465f` → 终点 `6179397`（campus-s4 分支，11 个 commit）。
+
+### 逐任务
+
+| Task | Commit | 测试计数 | 评审结论 |
+|---|---|---|---|
+| 1 迁移 0004 + seed | `86dfe29` | 118 passed | clean；3 minor 延后（seed 注释措辞、SQLite/MySQL REFERENCES 不对称记账、pytest.raises 偏宽） |
+| 2 State/编排模型/step_details | `b7d0769` | 120 passed | clean；3 minor 延后（sql_history 增量无独立钉、tool_executor 埋点无测试、clarify detail 取值自定） |
+| 3 写操作 + PendingActionStore + /confirm | `1f327e5`（`9ef5c48` 被裁决 R1 amend 覆盖） | 126 passed | clean；**裁决 R1**：简报测试注释与骨架矛盾 → 测试规格优先，seed 已报名课程首调即 `already` 不插登记行 |
+| 4 provider plan/judge | `ccf36e5`（`b767cfa` 被 R2/R3 amend 覆盖） | 132 passed | clean；**裁决 R2**：补考分支改词典课程优先（保旗舰两轮 SQL）；**裁决 R3**：写意图与 route 解耦（保 Task 6 confirm_card 可触发），先红后绿测试钉死 |
+| 5 grader + 图重构 + 降级 + 守卫 | `76f3eab` | 136 passed（先红 4） | clean，无裁决；7 条注记全生效；观察项：fake history 兜底、grader SSE 事件前端暂不消费 |
+| 6 write 路由 + confirm_preparer | `a734849` | 139 passed（先红 3） | clean；**裁决 R5（追认）**：chat.py 读 store 用 getattr 容缺（字面钉死与「既有测试零改动」冲突，后者优先）；鸡生蛋序列注记生效 |
+| 7 POST /replay | `c4ffde0` | 141 passed（先红 1） | clean，无裁决；**裁决 R4**（预审生效）：计划测试输入必红 → 改「查我这学期成绩」 |
+| 8 前端确认卡 + 回放面板 | `7191305` | 25 passed + build 过 | clean，无裁决；**裁决 R6**（预审生效）：补 @vue/test-utils/jsdom 依赖、去模板被禁字段、断言口径修正 |
+| 9 k6 扩展 | `a25fdbb` + `5ba2cd6` | k6 四门全过 | clean；**裁决 R7**：env.js 计数失同步（T1 漏更 k6 侧）→ 豁免禁改令授权 fixture 同步修复，独立 fix commit，四门复跑绿 |
+| 10 回归 + 验收 + 回填 | 零代码 commit（Step 1–5 由子代理跑证、Step 6–8 控制器执行） | 141 / 25 / 契约 3 OK / k6 四门 / 验收五条全 PASS | 零偏离；手测见下 |
+
+### Step 6 手测（控制器，Playwright 真浏览器，六图存证 `shots/`）
+
+fake 旗舰同框、确认卡未点态（未确认不执行双重验证）、报名成功态、状态翻转（报名中→已报名）、回放面板（五步+耗时）、真模型旗舰（deepseek-flash：56 分未及格 + 补考安排 + 卡片，`grader branch=then hit_rows=1`，8.8s，语义与 fake 一致）——**全部通过**。手测新发现 **裁决 R8**：vite dev 代理漏 `/confirm` `/replay`（三层门禁全盲区）→ `6179397` 修复；相对路径 SQLITE_PATH 被 academic 子进程按自身 CWD 解析的观察项留档（非 S4 引入）。
+
+### Header 五条裁决的执行后状态
+
+**五条全部维持、零修订**：(1) `plan()` 独立方法 ✓（Task 2 协议 + Task 4 双实现）；(2) /replay 展示不重执行 ✓（Task 7 实现 + 测试钉同源）；(3) `steps` 保持 list[str] + `step_details_json` 新列 ✓（Task 2/5 落地，S5 兼容）；(4) 写操作不进 MCP、唯一入口 /confirm ✓（Task 3/6，k6 authz 钉鉴权）；(5) seed 为旗舰服务 ✓（Task 1 落地，既有测试按认可变更更新）。
+
+执行中**新增裁决 R1–R8**（记台账 progress.md）：R1/R2/R2b/R3/R4/R6 修订了计划内部矛盾或实现指令（测试规格/验收优先），R5/R7/R8 为执行中发现缺陷的修复授权。计划缺陷率：10 个任务中 6 个在预审/执行期发现计划内部矛盾或想当然符号——全部在评审前拦截，无一次返工浪费。
+
+### 最终门禁（Task 10 Step 1–5 原文）
+
+后端 `141 passed` / 前端 `25 passed` + `npm run build` 过 / 契约脚本 3 项 OK / k6 四门（api_smoke 14、authz 13、session_isolation 全量、sse_chat 15，rate===1）/ 验收五条逐条 PASS（第 4、5 条证据语义按实如实记录：降级测试钉 followup 轮失败路径、死循环为结构性防线 + recursion_limit=10 兜底）。

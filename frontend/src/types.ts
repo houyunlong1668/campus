@@ -36,6 +36,11 @@ export interface SqlResultEvent {
   truncated: boolean
 }
 
+/** 写操作确认卡：action_id 是 /confirm 的一次性凭据 */
+export interface ConfirmCardEvent {
+  action_id: string; action: string; title: string; summary: string
+}
+
 export interface NavCard {
   path: string
   title: string

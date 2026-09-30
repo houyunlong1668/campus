@@ -80,4 +80,19 @@ describe('useChatStream', () => {
     expect(assistant.sqlResult?.sql).toContain('student_id = ?')
     expect(assistant.sqlResult?.truncated).toBe(false)
   })
+
+  it('confirm_card 事件落到气泡的确认卡字段上', async () => {
+    stubStream([
+      'event: confirm_card\ndata: {"action_id":"a1","action":"makeup_register","title":"确认报名","summary":"s"}\n\n',
+      'event: done\ndata: {"message_id":"m4","steps":["router","confirm_preparer","generator"]}\n\n',
+    ])
+
+    const { messages, send } = useChatStream()
+    await send('帮我报名补考')
+
+    const assistant = messages.value[messages.value.length - 1]
+    expect(assistant.confirmCard?.action_id).toBe('a1')
+    expect(assistant.confirmCard?.action).toBe('makeup_register')
+    expect(assistant.error).toBeNull()
+  })
 })

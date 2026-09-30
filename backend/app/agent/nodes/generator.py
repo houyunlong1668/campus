@@ -1,9 +1,12 @@
 from langgraph.types import StreamWriter
 
+import time
+
 from ...llm.base import LLMProvider
 
 
 async def generator_node(state, provider: LLMProvider, writer: StreamWriter):
+    start = time.perf_counter()
     # 先算 nav_card：流式前就要确定，并随 state 传给 provider，
     # 保证首条 token 话术与随后发出的 nav_card 语义一致
     nav_card = None
@@ -24,7 +27,10 @@ async def generator_node(state, provider: LLMProvider, writer: StreamWriter):
             writer(("nav_card", nav_card))
         # 只出选项条，不出 token：同一句话既打字又给按钮是重复信号
         return {"answer": clarify["question"], "nav_card": nav_card,
-                "steps": ["generator"]}
+                "steps": ["generator"],
+                "step_details": [{"node": "generator",
+                                  "latency_ms": int((time.perf_counter() - start) * 1000),
+                                  "detail": {"answer_chars": len(clarify["question"])}}]}
 
     answer_parts: list[str] = []
     async for chunk in provider.stream_answer(state["user_input"], stream_state):
@@ -34,4 +40,8 @@ async def generator_node(state, provider: LLMProvider, writer: StreamWriter):
     if nav_card is not None:
         writer(("nav_card", nav_card))
 
-    return {"answer": "".join(answer_parts), "nav_card": nav_card, "steps": ["generator"]}
+    answer = "".join(answer_parts)
+    return {"answer": answer, "nav_card": nav_card, "steps": ["generator"],
+            "step_details": [{"node": "generator",
+                              "latency_ms": int((time.perf_counter() - start) * 1000),
+                              "detail": {"answer_chars": len(answer)}}]}

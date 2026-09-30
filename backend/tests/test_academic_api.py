@@ -52,10 +52,11 @@ def test_四端点未登录一律401(client):
 def test_成绩含挂科行且只含本人(client):
     _login(client, "20230001")
     rows = client.get("/api/grades").json()["grades"]
-    assert len(rows) == 14  # 13 + 数据结构 2025 秋（clarify 跨学期靶子，与 k6 env.js 同源）
+    assert len(rows) == 15  # 14 + 高等数学（下）56 分（S4 旗舰靶子，/confirm 回放演示）
     assert {r["name"] for r in rows} >= {"数据结构（暑期补习）", "大学物理（上）"}
     assert next(r for r in rows if r["name"] == "数据结构（暑期补习）")["score"] == 87
     assert next(r for r in rows if r["name"] == "大学物理（上）")["score"] == 56
+    assert next(r for r in rows if r["name"] == "高等数学（下）")["score"] == 56
     assert set(rows[0]) == {"name", "code", "credits", "score", "term"}
 
 
@@ -71,11 +72,17 @@ def test_课表形状periods与weeks(client):
 def test_补考时间已格式化且名额有文案(client):
     _login(client, "20230001")
     items = client.get("/api/makeup").json()["items"]
-    assert len(items) == 3
+    assert len(items) == 4  # 3 + 高等数学（下）补考报名（S4 旗舰靶子）
     assert all(WEEK_RE.match(i["when"]) for i in items if i["status"] != "报名中")
-    opening = next(i for i in items if i["status"] == "报名中")
+    openings = {i["course"] for i in items if i["status"] == "报名中"}
+    assert openings == {"概率论与数理统计", "高等数学（下）"}
+    opening = next(i for i in items if i["course"] == "概率论与数理统计")
     assert opening["when"].startswith("报名截止 ")
     assert opening["seats"] == "剩 23 / 120"
+    flagship = next(i for i in items if i["course"] == "高等数学（下）")
+    assert flagship["when"].startswith("报名截止 ")
+    assert flagship["seats"] == "剩 40 / 80"
+    assert flagship["code"] == "MATH2041"
     # 补考/重修没有名额列：seats 必须是 JSON null，而不是 ""或"剩  / "之类假文案
     assert next(i for i in items if i["course"] == "大学物理（上）")["seats"] is None
 

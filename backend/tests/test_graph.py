@@ -44,9 +44,12 @@ async def run_graph(graph, user_input: str, history: list | None = None):
     async for mode, payload in graph.astream(
         {"user_input": user_input, "student_id": "20230001",
          "history": history or [],
-         "intent": None, "route": None, "tool_name": None, "tool_args": {},
+         "intent": None, "route": None, "orchestration": None, "write": None,
+         "orchestration_phase": None, "branch": None, "next_query": None,
+         "tool_name": None, "tool_args": {},
          "tool_results": {}, "answer": "", "nav_card": None,
          "needs_clarification": False, "clarification": None, "sql": None,
+         "sql_history": [], "confirm_card": None, "step_details": [],
          "steps": [], "error": None},
         stream_mode=["custom", "values"],
     ):
@@ -299,3 +302,32 @@ class Test真MCP路径:
         assert isinstance(schema, list), (
             f"schema_json 双重编码：loads 后应为 list，实为 {type(schema).__name__}")
         assert schema and schema[0]["name"] == "v_grades"
+
+
+class TestState扩展:
+    def test_tool_results_累加不被覆盖(self):
+        # 两次 executor 结果同在：第二次返回的 dict 与第一次合并，不是覆盖
+        from app.agent.state import _merge_results
+
+        first = {"resolve_page": {"ok": True, "data": {"path": "/a"}}}
+        second = {"run_sql": {"ok": True, "row_count": 2}}
+        merged = _merge_results(first, second)
+        assert merged == {**first, **second}   # 异 key 并集
+        # 同 key 后者覆盖（同工具重跑）
+        assert _merge_results({"run_sql": {"row_count": 1}},
+                              {"run_sql": {"row_count": 2}}) == {"run_sql": {"row_count": 2}}
+        # None 容忍：langgraph 合并器首参可能是 None（该 key 尚无值）
+        assert _merge_results(None, second) == second
+        assert _merge_results(first, None) == first
+
+    async def test_每节点都留step_details(self, academic_registry):
+        # 跑一条 query 链路，断言 final_state["step_details"] 里
+        # node 依次含 router/sql_executor/generator，且每个都有 latency_ms(int) 与 detail(dict)
+        graph = build_graph(FakeProvider(), academic_registry)
+        _, final = await run_graph(graph, "我这学期平均分多少")
+        assert final["steps"] == ["router", "sql_executor", "generator"]
+        details = final["step_details"]
+        assert [d["node"] for d in details] == ["router", "sql_executor", "generator"]
+        for d in details:
+            assert isinstance(d["latency_ms"], int) and d["latency_ms"] >= 0
+            assert isinstance(d["detail"], dict)

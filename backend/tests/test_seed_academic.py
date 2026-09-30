@@ -14,7 +14,15 @@ async def test_seed_三账号异构数据(tmp_path):
 
     assert counts["students"] == 3
     assert counts["enrollments"] >= 28
-    assert counts["makeup_items"] == 3  # 全部属于周晓楠（唯一有挂科的人）
+    assert counts["makeup_items"] == 4  # 全部属于周晓楠（唯一有挂科的人）；含 S4 旗舰靶子
+
+    # 旗舰靶子：高等数学（下）期末 56 分 + 「报名中」补考条目（/confirm 可翻转）
+    rows = await db.fetch_all(
+        "SELECT score FROM enrollments WHERE student_id='20230001' AND course_code='MATH2041'")
+    assert [r["score"] for r in rows] == [56]
+    rows = await db.fetch_all(
+        "SELECT status FROM makeup_items WHERE student_id='20230001' AND course_code='MATH2041'")
+    assert [r["status"] for r in rows] == ["报名中"]
 
     # 20230007 与 20230001 有同名课程但分数不同（spec 5.2，越权用例 A2 的靶子）
     rows = await db.fetch_all(

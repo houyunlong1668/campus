@@ -8,7 +8,9 @@ export const PASSWORD = 'demo1234'
 
 // 计数来自 seed 的实际数据（backend/tests/test_academic_api.py 同源断言）
 export const STUDENTS = {
-  zhou: { id: '20230001', grades: 14, schedule: 12, makeups: 3, loans: 4 },
+  // S4 86dfe29 给周晓楠补旗舰演示数据（高数（下）56 分 + 补考）后为 15/4，
+  // 与 test_academic_api 的同源断言一致（裁决 R7 豁免本次修改）。
+  zhou: { id: '20230001', grades: 15, schedule: 12, makeups: 4, loans: 4 },
   chen: { id: '20230002', grades: 6, schedule: 6, makeups: 0, loans: 2 },
 }
 

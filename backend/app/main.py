@@ -8,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api.academic import router as academic_router
 from .api.auth import router as auth_router
 from .api.chat import router as chat_router
+from .api.confirm import router as confirm_router
+from .api.replay import router as replay_router
 from .auth.rate_limit import LoginGuard
 from .auth.session import SessionStore
 from .auth.students import build_student_repository, seed_students
@@ -20,6 +22,7 @@ from .llm import build_provider
 from .tools.base import ToolRegistry
 from .tools.composite import CompositeRegistry
 from .tools.stdio_mcp import stdio_registry
+from .write_ops import PendingActionStore
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("campus-agent")
@@ -52,6 +55,7 @@ async def lifespan(app: FastAPI):
     app.state.repository = build_repository(db)
     app.state.students = build_student_repository(db)
     app.state.sessions = SessionStore(ttl_seconds=settings.session_ttl_seconds)
+    app.state.pending_actions = PendingActionStore()  # 待确认写动作，/confirm 从这里 pop
     app.state.login_guard = LoginGuard()
     async with stdio_registry(settings.navigation_server_dir) as nav_reg, \
                stdio_registry(settings.academic_server_dir, env=_academic_env(settings)) as academic_reg:
@@ -84,6 +88,8 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(chat_router)
     app.include_router(academic_router)
+    app.include_router(confirm_router)
+    app.include_router(replay_router)
 
     return app
 

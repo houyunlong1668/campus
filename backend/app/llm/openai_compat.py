@@ -4,6 +4,7 @@ from typing import AsyncIterator
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
+from ..agent.plan import OrchestrationPlan, PlanBundle, WriteIntent
 from ..agent.state import AgentState
 from ..tools.base import ToolSpec
 from .base import RouteDecision
@@ -29,6 +30,17 @@ SQL_SYSTEM = (
     "四个视图，绝不出现 student_id 列，绝不写多条语句。"
     "输出只含 SQL 文本本身，不要解释、不要 markdown 代码块。"
 )
+
+PLAN_SYSTEM = (
+    "你是编排规划器。判断这句用户输入是否需要：a) 条件分支（先查数，满足条件再追加一个取数问题）；"
+    "b) 写操作确认（补考/重修报名）。只输出 JSON："
+    '{"orchestration": {"condition": {"mode": "threshold", "column": "score", "op": "lt", "value": 60}'
+    ' | {"mode": "llm", "condition_text": "..."}, "followup_user_input": "..."} | null, '
+    '"write": {"course_code": "...", "course_name": "...", "summary": "..."} | null}。'
+    "没有把握就全 null。阈值条件只用于分数类列。"
+)
+
+JUDGE_SYSTEM = "你是条件判定器。只回答 true 或 false，不要任何其他字符。"
 
 
 class OpenAICompatProvider:
@@ -84,20 +96,52 @@ class OpenAICompatProvider:
                 text = text[3:]
         return text.strip()
 
+    async def plan(self, user_input: str, route: str) -> PlanBundle:
+        if route not in ("query", "answer"):
+            return PlanBundle()
+        if not any(h in user_input for h in ("不及格", "低于", "如果", "报名", "重修", "补考")):
+            return PlanBundle()   # 触发词闸：无关消息零额外调用
+        resp = await self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "system", "content": PLAN_SYSTEM},
+                      {"role": "user", "content": user_input}],
+            response_format={"type": "json_object"},
+        )
+        try:
+            data = json.loads(resp.choices[0].message.content or "{}")
+            return PlanBundle(
+                orchestration=OrchestrationPlan(**data["orchestration"])
+                if data.get("orchestration") else None,
+                write=WriteIntent(**data["write"]) if data.get("write") else None)
+        except (json.JSONDecodeError, KeyError, ValueError):
+            return PlanBundle()   # 计划坏了就当没有：降级为单轮，不阻断对话
+
+    async def judge(self, condition_text: str, evidence: dict) -> bool:
+        resp = await self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "system", "content": JUDGE_SYSTEM},
+                      {"role": "user", "content": f"条件：{condition_text}\n"
+                        f"数据：{json.dumps(evidence, ensure_ascii=False)}"}],
+        )
+        return (resp.choices[0].message.content or "").strip().lower().startswith("true")
+
     async def stream_answer(self, user_input: str, state: AgentState) -> AsyncIterator[str]:
         tool_note = ""
         for name, result in (state.get("tool_results") or {}).items():
             tool_note += f"\n工具 {name} 返回: {json.dumps(result.get('data'), ensure_ascii=False)}"
-        # 查数结果只在 state["sql"]、不在 tool_results——不给模型看行数据，
+        # 查数结果在 state["sql_history"]（编排两轮时第一轮分数不能丢）、
+        # 兜底 state["sql"]，都不在 tool_results——不给模型看行数据，
         # 它按 ANSWER_SYSTEM「不要编造」就没法回答澄清第二轮（历史里只有
         # 问句没有分数），只能拒绝作答或瞎编。
         sql = state.get("sql")
-        if sql and sql.get("columns"):
-            tool_note += ("\n查询结果"
-                          + json.dumps({"columns": sql.get("columns"),
-                                        "rows": sql.get("rows") or [],
-                                        "row_count": sql.get("row_count")},
-                                       ensure_ascii=False))
+        history = state.get("sql_history") or ([sql] if sql else [])
+        for i, s in enumerate(history):
+            if s.get("columns"):
+                tool_note += (f"\n查询结果#{i + 1}"
+                              + json.dumps({"columns": s.get("columns"),
+                                            "rows": s.get("rows") or [],
+                                            "row_count": s.get("row_count")},
+                                           ensure_ascii=False))
         messages: list[ChatCompletionMessageParam] = [
             {"role": "system", "content": ANSWER_SYSTEM}]
         for h in (state.get("history") or []):

@@ -43,7 +43,12 @@ async def chat(request: ChatRequest, req: Request,
     registry = req.app.state.registry
     provider = req.app.state.provider
     repository = req.app.state.repository
-    graph = build_graph(provider, registry)
+    # 写动作 store 从 app.state 取（main.py lifespan 已挂）。getattr 容缺：
+    # test_chat_auth 的最小 fixture 不挂 pending_actions，而既有测试零改动是
+    # 硬约束（修实现不修测试）——缺 store 时回落到 build_graph 的每图新建兜底，
+    # 与该 fixture 在 Task 6 之前的行为一致；生产链路（main.py）语义不变。
+    graph = build_graph(provider, registry,
+                        getattr(req.app.state, "pending_actions", None))
     request_id = uuid.uuid4().hex[:12]
     message_id = uuid.uuid4().hex[:12]
     start = time.perf_counter()
@@ -59,9 +64,12 @@ async def chat(request: ChatRequest, req: Request,
         # 图内的"会话"即学号：节点不需要知道身份从哪来
         "student_id": student.student_id,
         "history": history,
-        "intent": None, "route": None, "tool_name": None, "tool_args": {},
+        "intent": None, "route": None, "orchestration": None, "write": None,
+        "orchestration_phase": None, "branch": None, "next_query": None,
+        "tool_name": None, "tool_args": {},
         "tool_results": {}, "answer": "", "nav_card": None,
         "needs_clarification": False, "clarification": None, "sql": None,
+        "sql_history": [], "confirm_card": None, "step_details": [],
         "steps": [], "error": None,
     }
 
@@ -96,6 +104,7 @@ async def chat(request: ChatRequest, req: Request,
                     tool_call=build_record(state),
                     steps=state.get("steps", []),
                     sql=sql_record,
+                    step_details=state.get("step_details") or [],
                 )
             except Exception:
                 logger.exception("request_id=%s 落库失败（不中断对话流）", request_id)

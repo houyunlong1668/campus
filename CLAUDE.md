@@ -27,7 +27,7 @@ uv run pytest tests/ -v
 uv run python ../../scripts/check_mcp.py           # stdio 握手 + 工具调用验证
 uv run python ../../scripts/check_routes_contract.py  # 跨层契约断言
 
-# 前端（:5173，dev 代理 /api /chat /auth /health /debug → :8000）
+# 前端（:5173，dev 代理 /api /chat /auth /health /debug /confirm /replay → :8000）
 cd frontend
 npm install
 npm run dev
@@ -80,7 +80,7 @@ mcp_servers/navigation/server.py            MCPServer("navigation") + PAGE_REGIS
 - `mcp` 依赖两侧必须同为 `mcp>=2.2,<3`，server 类从 `mcp.server` 导入 `MCPServer`（`FastMCP` 路径已废弃）；版本不一致握手协商失败。
 - CORS 显式白名单 `http://localhost:5173` 且 `allow_credentials=True`（会话 Cookie 需要），禁 `allow_origins=["*"]`。
 - Markdown 渲染必须 `html:false`（模型输出直插 DOM 是 XSS 入口）。
-- LangGraph 节点返回值带 `"steps": ["<节点名>"]`（`operator.add` reducer），禁止原地 append 后返回；图编译 `recursion_limit=8`，超限在 `api/chat.py` 转 `error` 事件。
+- LangGraph 节点返回值带 `"steps": ["<节点名>"]`（`operator.add` reducer），禁止原地 append 后返回；图编译 `recursion_limit=10`（S4 起，grader/followup 轮后兜底；图级循环守卫见 orchestration_phase），超限在 `api/chat.py` 转 `error` 事件。
 - 工具参数在 `call_tool` 前按 `ToolSpec.input_schema` 校验，不合法直接 `ok=False`，不下发 MCP。
 - SSE 响应头带 `Cache-Control: no-cache` 与 `X-Accel-Buffering: no`。
 - `k6/lib/helpers.js`：cookie jar 必须延迟到首次请求（VU 上下文）创建——k6 init 上下文禁造 jar。
