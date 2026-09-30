@@ -45,7 +45,19 @@ bash scripts/run_k6.sh    # 自建临时 sqlite（backend/data/k6-smoke.db）+ �
 
 # MySQL（容器名固定 campus-mysql，宿主机端口 3307——3306 被本机原生 mysqld 占用）
 cd deploy && docker compose up -d
-# backend/.env 需设 MYSQL_PORT=3307；凭据放 deploy/.env（不入库）
+# backend/.env 需设 DB_BACKEND=mysql、MYSQL_PORT=3307、MYSQL_PASSWORD=（deploy/.env 的
+# MYSQL_ROOT_PASSWORD，config 默认 root 空密码对容器必 1045）；凭据放 deploy/.env（不入库）。
+# WSL 场景：dockerd 跑在 WSL 里（Windows 侧 docker CLI 走 tcp://127.0.0.1:2375，
+# 桥接脚本 scripts/wsl-docker-tcp/）。WSL 空闲自动退出会让 2375/3307 一起消失——
+# 先 `wsl -d Ubuntu` 把发行版拉起，容器随 restart 策略自动复位。
+
+# CI/CD（.github/workflows/ci-cd.yml）
+# push/PR → 三门禁：后端 pytest+契约、前端 vitest+vue-tsc build、k6 四门（k6 钉 v2.3.0 同本地）；
+# push main / v* 栦签 → 三门全绿后构建双镜像推阿里云 ACR（registry.cn-hangzhou.aliyuncs.com/
+# hou_yun_long/campus，tag 为 backend|frontend-<sha7 或 v*>，main 另推 -latest）。
+# 必配 GitHub Secrets：ACR_USERNAME / ACR_PASSWORD（ACR 访问凭证，非阿里云登录密码）。
+# 本地构建同源镜像：docker build -f backend/Dockerfile -t campus:backend:dev .
+#                   docker build -f frontend/Dockerfile -t campus:frontend:dev .
 ```
 
 配置：复制 `.env.example` → `backend/.env`。`LLM_PROVIDER=fake`（默认，无 Key 全链路可跑）或 `openai_compat`（需 `OPENAI_BASE_URL`/`OPENAI_MODEL`/`OPENAI_API_KEY`）。进程 env 优先于 `.env`（pydantic-settings）。
