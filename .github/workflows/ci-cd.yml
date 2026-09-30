@@ -44,6 +44,11 @@ jobs:
         working-directory: backend
         run: uv sync --frozen --python 3.13
 
+      - name: 装 academic MCP 依赖（A1–A6 真子进程用例要 sqlglot——缺 academic/.venv
+          时 stdio 解释器探针回落 backend venv，import 即挂到超时）
+        working-directory: mcp_servers/academic
+        run: uv sync --frozen --python 3.13
+
       - name: pytest（全跑 SQLite，不起子进程不打网络的单元层照旧）
         working-directory: backend
         env:
@@ -96,20 +101,34 @@ jobs:
         working-directory: backend
         run: uv sync --frozen --python 3.13
 
-      - name: 安装 k6 v2.3.0（与本地门禁同版本，阈值行为一致）
-        # run #1 此步失败且 job 日志需 admin 权限读不到——加固：set -x 全跟踪、
-        # curl 重试抗偶发、find 找二进制兼容 zip 内布局变化、每类失败带 ::error:: 注解。
+      - name: 装 academic MCP 依赖（uvicorn lifespan 拉 academic 子进程要 sqlglot——
+          缺它 lifespan 起不来，/health 永远不就绪、门禁必红）
+        working-directory: mcp_servers/academic
+        run: uv sync --frozen --python 3.13
+
+      - name: 安装 k6 v2.3.0（双下载源：GitHub tar.gz → Docker Hub 官方镜像）
+        # run #1/#2 同步红的根因（官方 API 实锤）：linux 资产是 .tar.gz 不是 .zip，旧 URL 必 404，
+        # 与网络无关。按「更换下载源」诉求加完全不经 GitHub 的备源：Docker Hub grafana/k6:2.3.0
+        # （本机已实测：镜像存在、二进制在 /usr/bin/k6）。set -x 留全跟踪。
         run: |
           set -x
-          curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 -o /tmp/k6.zip \
-            https://github.com/grafana/k6/releases/download/v2.3.0/k6-v2.3.0-linux-amd64.zip \
-            || { echo "::error::k6 压缩包下载失败（URL 变更或网络）https://github.com/grafana/k6/releases/tag/v2.3.0"; exit 1; }
-          unzip -q /tmp/k6.zip -d /tmp/k6x \
-            || { echo "::error::unzip 解压失败（包损坏或 unzip 缺失）"; exit 1; }
-          K6BIN="$(find /tmp/k6x -type f -name k6 | head -1)"
+          mkdir -p /tmp/k6x
+          K6BIN=""
+          if curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 -o /tmp/k6.tgz \
+              https://github.com/grafana/k6/releases/download/v2.3.0/k6-v2.3.0-linux-amd64.tar.gz \
+              && tar -xzf /tmp/k6.tgz -C /tmp/k6x; then
+            K6BIN="$(find /tmp/k6x -type f -name k6 | head -1)"
+          fi
           if [ -z "$K6BIN" ]; then
-            echo "::error::zip 内未找到 k6 二进制，包布局有变"
-            unzip -l /tmp/k6.zip
+            echo "::warning::GitHub 官方源未取到，切换备用下载源：Docker Hub grafana/k6:2.3.0"
+            docker pull grafana/k6:2.3.0
+            docker create --name k6extract grafana/k6:2.3.0
+            docker cp k6extract:/usr/bin/k6 /tmp/k6x/k6
+            docker rm k6extract
+            K6BIN=/tmp/k6x/k6
+          fi
+          if [ ! -f "$K6BIN" ]; then
+            echo "::error::两个下载源都没能提供 k6 二进制（GitHub tar.gz 与 Docker Hub）"
             exit 1
           fi
           sudo install "$K6BIN" /usr/local/bin/k6
