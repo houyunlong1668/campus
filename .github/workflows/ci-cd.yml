@@ -1,14 +1,23 @@
-# S4 之后的 CI/CD：测试三层门禁（pytest+契约 / vitest+类型 / k6 四门）+ 阿里云 ACR 镜像交付。
+# CI/CD（2026-09-30 重设计）：
+#   CI = 三门禁（pytest+契约 / vitest+类型 / k6 四门），跑 GitHub 托管 runner——
+#        已验证又快又稳；k6 钉 v2.3.0 与本地同版本，uv 用 pip 装、k6 双下载源。
+#   CD = 构建双镜像推阿里云 ACR，跑 **self-hosted runner（本机）**——
+#        托管 runner（美西）→ 杭州 ACR 跨境链路三跑三败（run #3/#4 push 超时），
+#        国内近源直推是结构性解法（同参考文档「内网加速」思路）。
 #
-# 必需的 GitHub Secrets（仓库 Settings → Secrets and variables → Actions）：
+# self-hosted runner 前提（一次性配置，见 CLAUDE.md CI/CD 段）：
+#   仓库 Settings → Actions → Runners → New self-hosted runner（Windows x64）→
+#   本机执行 config + run（或注册为服务）。runner 在线时 push 自动触发 CD；
+#   离线则 deploy 排队显示 Waiting for a self-hosted runner——不阻塞 CI 门禁
+#   （已取消 workflow 级 concurrency，门禁与部署互不锁死），上线或手动取消即可。
+#   deploy 内置 WSL 唤醒步骤（dockerd 跑在 WSL 里、空闲会退出）。
+#
+# 必需的 GitHub Secrets：
 #   ACR_USERNAME  阿里云登录用户名（参考文档为 houyunlong；建议改用 RAM 子账号）
 #   ACR_PASSWORD  ACR 访问凭证密码（阿里云控制台「访问凭证」页设置，不是阿里云登录密码）
 # 镜像仓库：registry.cn-hangzhou.aliyuncs.com/hou_yun_long/campus（须先在控制台创建该仓库）
 #   tag 规则：push main → backend-sha-<7位> / frontend-sha-<7位>（另推 -latest）
 #             push v* 标签 → backend-<vX.Y.Z> / frontend-<vX.Y.Z>
-#
-# 说明：未使用第三方 setup action（setup-uv/setup-k6），改为 pip 装 uv、按固定版本直下 k6——
-# 减少 action 主版本失效风险，且 k6 钉在 v2.3.0 与本地门禁同版本，阈值行为一致。
 
 name: CI/CD
 
@@ -20,9 +29,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+# 故意不设 workflow 级 concurrency：部署改 self-hosted 后，机器离线会让 deploy
+# 长时间排队——workflow 级组会把后续 push 的整条流水线一起锁死。改为 deploy job
+# 级 concurrency（deploy-acr 组 + cancel-in-progress），新 push 顶掉旧部署。
 
 permissions:
   contents: read
@@ -138,10 +147,18 @@ jobs:
         run: bash scripts/run_k6.sh
 
   deploy-image:
-    name: 构建镜像并推送阿里云 ACR
-    runs-on: ubuntu-latest
-    # 35：留出跨境推送的重试余量（单 push 限时 8 分钟 × 重试 + 构建）
+    name: 构建镜像并推送阿里云 ACR（self-hosted 国内直推）
+    # self-hosted：跨太平洋推 ACR 三跑三败，改本机近源直推（详见文件头说明）
+    runs-on: [self-hosted]
+    # Windows self-hosted：脚本全是 bash 语法，默认 shell 是 pwsh 会直接语法爆炸
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 35
+    # 部署互斥且新的顶掉旧的：机器离线时排队、上线自动跑；连推两次不会堆两个部署
+    concurrency:
+      group: deploy-acr
+      cancel-in-progress: true
     # PR 不发版；push main / v* 标签 / 手动触发才构建推送，且必须三门全绿
     needs: [backend-tests, frontend-tests, k6-gate]
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
@@ -149,6 +166,22 @@ jobs:
       ACR_REGISTRY: registry.cn-hangzhou.aliyuncs.com
       ACR_IMAGE: registry.cn-hangzhou.aliyuncs.com/hou_yun_long/campus
     steps:
+      # dockerd 跑在 WSL 里且空闲自动退出——每 job 开场先唤醒并等 docker TCP 就绪
+      - name: 唤醒 WSL 并等 docker 就绪（仅 Windows runner）
+        if: runner.os == 'Windows'
+        run: |
+          ts() { date -u +%H:%M:%S; }
+          echo "[$(ts)] 唤醒 WSL Ubuntu..."
+          wsl.exe -d Ubuntu -- echo wsl-ready || echo "::warning::WSL 唤醒返回非零，继续等 docker"
+          for i in $(seq 1 45); do
+            if docker ps >/dev/null 2>&1; then
+              echo "[$(ts)] docker 就绪（第 ${i} 次探测）"
+              break
+            fi
+            sleep 2
+          done
+          docker ps || { echo "::error::docker 始终不可达（WSL/dockerd/context 配置？）"; exit 1; }
+
       - uses: actions/checkout@v4
 
       - name: 解析镜像版本号（v* 标签用标签名，否则短 sha）
@@ -179,23 +212,31 @@ jobs:
             --password-stdin "$ACR_REGISTRY"
 
       - name: 打标并推送（参考文档步骤 3/5）
-        # 跨境推送加固（run #3 实测：push 步骤 10+ 分钟日志全静默）：
-        # 1) docker push 进度条用 \r 刷新、Actions 按行缓冲 → 上传期零日志，“看着卡死”；
-        #    每次尝试打 UTC 时间戳，日志始终有心跳。
-        # 2) 美西 runner → 杭州 ACR 偶发 TCP 假死（吞吐归零）：单次 push 限时 8 分钟，
-        #    超时/失败自动换新连接重试（已传完的层会被跳过，重试不从零开始）。
-        # 3) 总兜底仍是 job 级 timeout-minutes。
+        # 本机国内直推（快）；仍保留两层保险：UTC 时间戳心跳（docker push 的 \r 进度
+        # 在 Actions 里整段静默）+ 限时换连接重试（可移植写法——Git Bash 未必有 GNU timeout）。
         run: |
           ts() { date -u +%H:%M:%S; }
+          push_timed() {
+            local tag="$1" limit="${2:-480}"
+            docker push "$tag" &
+            local pid=$!
+            ( sleep "$limit"; kill "$pid" 2>/dev/null ) &
+            local wd=$!
+            local rc=0
+            wait "$pid" || rc=$?
+            kill "$wd" 2>/dev/null || true
+            wait "$wd" 2>/dev/null || true
+            return $rc
+          }
           push_try() {
             local tag="$1"
             for i in 1 2; do
               echo "[$(ts)] push $tag 第 $i 次开始"
-              if timeout 480 docker push "$tag"; then
+              if push_timed "$tag" 480; then
                 echo "[$(ts)] push $tag 成功"
                 return 0
               else
-                echo "::warning::push $tag 第 $i 次超时/失败（exit=$?），10s 后换连接重试"
+                echo "::warning::push $tag 第 $i 次超时/失败，10s 后重试（已传层自动跳过）"
                 sleep 10
               fi
             done

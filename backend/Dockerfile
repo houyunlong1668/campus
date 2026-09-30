@@ -20,12 +20,17 @@ RUN pip install --no-cache-dir uv
 WORKDIR /repo
 
 # --- 依赖层（先锁文件后代码，充分利用层缓存）---
-# --python 显式用镜像自带解释器：否则 uv 可能去 github 下托管 Python（国内网络必卡）
+# --python 显式用镜像自带解释器：否则 uv 可能去 github 下托管 Python（国内网络必卡）。
+# 同一 RUN 内删 uv 缓存与 __pycache__——分层删不减体积（字节还在下层），同层删才瘦身。
 COPY backend/pyproject.toml backend/uv.lock backend/
-RUN cd backend && uv sync --frozen --no-install-project --python /usr/local/bin/python
+RUN cd backend && uv sync --frozen --no-install-project --python /usr/local/bin/python \
+    && rm -rf /root/.cache \
+    && find . -type d -name __pycache__ -prune -exec rm -rf {} +
 
 COPY mcp_servers/academic/pyproject.toml mcp_servers/academic/uv.lock mcp_servers/academic/
-RUN cd mcp_servers/academic && uv sync --frozen --no-install-project --python /usr/local/bin/python
+RUN cd mcp_servers/academic && uv sync --frozen --no-install-project --python /usr/local/bin/python \
+    && rm -rf /root/.cache \
+    && find . -type d -name __pycache__ -prune -exec rm -rf {} +
 
 # --- 代码层 ---
 COPY backend/app backend/app
