@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目定位
 
-基于 MCP 协议的校园浏览器 Agent：前端输入一句话 → FastAPI `/chat`（SSE）→ LangGraph 路由 → 通过 stdio 子进程调用 MCP 工具 → 流式返回文本与跳转卡片 / 查数结果。**文档驱动开发**：需求出自 `方案.md`（8 周愿景），切片设计在 `docs/superpowers/specs/`，实施计划在 `docs/superpowers/plans/`（含逐步勾选与执行回填）。改动前先确认当前里程碑归属——已交付 M1–M6、S1（身份会话）、S2（MySQL 数据层）、S3（Text-to-SQL 查数与对话框数据表，2026-09-23 合入）、k6 门禁；下一个是 S4（多工具条件编排 + 操作确认与回放），S4–S7 见 `2026-09-22-campus-roadmap-s4-s7-design.md`。S3 台账在 `.superpowers/sdd/2026-09-22-campus-s3-text2sql/`（progress.md + 各 task report）。
+基于 MCP 协议的校园浏览器 Agent：前端输入一句话 → FastAPI `/chat`（SSE）→ LangGraph 路由 → 通过 stdio 子进程调用 MCP 工具 → 流式返回文本与跳转卡片 / 查数结果。**文档驱动开发**：需求出自 `方案.md`（8 周愿景），切片设计在 `docs/superpowers/specs/`，实施计划在 `docs/superpowers/plans/`（含逐步勾选与执行回填）。改动前先确认当前里程碑归属——已交付 M1–M6、S1（身份会话）、S2（MySQL 数据层）、S3（Text-to-SQL 查数与对话框数据表，2026-09-23 合入）、k6 门禁、S4（多工具条件编排 + 操作确认与回放，2026-09-30 合入）；下一个是 S5（Agent 行为测试体系），S4–S7 见 `2026-09-22-campus-roadmap-s4-s7-design.md`。S3 台账在 `.superpowers/sdd/2026-09-22-campus-s3-text2sql/`（progress.md + 各 task report）；S4 台账在 `.superpowers/sdd/2026-09-26-campus-s4-orchestration-confirm-replay/`（progress.md、task reports、验收截图）。
 
 文档与注释、commit message 一律中文。
 
