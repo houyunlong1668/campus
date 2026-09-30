@@ -31,6 +31,9 @@ skills-lock.json
 .superpowers/
 .worktrees/
 
+# 工具产物（浏览器自动化快照/日志）
+.playwright-mcp/
+
 # 编辑器与系统
 .vscode/
 .idea/
