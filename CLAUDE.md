@@ -51,17 +51,13 @@ cd deploy && docker compose up -d
 # 桥接脚本 scripts/wsl-docker-tcp/）。WSL 空闲自动退出会让 2375/3307 一起消失——
 # 先 `wsl -d Ubuntu` 把发行版拉起，容器随 restart 策略自动复位。
 
-# CI/CD（.github/workflows/ci-cd.yml）——CI 托管、CD 本机（2026-09-30 重设计）
-# push/PR → 三门禁（GitHub 托管 runner）：后端 pytest+契约、前端 vitest+vue-tsc build、
-#           k6 四门（k6 钉 v2.3.0 同本地；双下载源 GitHub tar.gz → Docker Hub 备胎）；
-# push main / v* 标签 → 三门全绿后构建双镜像推阿里云 ACR（registry.cn-hangzhou.aliyuncs.com/
-# hou_yun_long/campus，tag 为 backend|frontend-<sha7 或 v*>，main 另推 -latest）。
-#   **CD 跑 self-hosted runner（本机）**：托管 runner 跨境推 ACR 三跑三败已弃用——
-#   首次需在仓库 Settings → Actions → Runners 注册 Windows runner 并保持 run.cmd 在线；
-#   deploy 内置 WSL 唤醒（dockerd 空闲退出会被自动拉起）。runner 离线时 deploy 排队、
-#   不阻塞门禁（无 workflow 级 concurrency），上线自动续跑。
-# 必配 GitHub Secrets：ACR_USERNAME / ACR_PASSWORD（ACR 访问凭证，非阿里云登录密码）。
-# 本地构建同源镜像：docker build -f backend/Dockerfile -t campus:backend:dev .
+# CI/CD——门禁在 GitHub Actions，交付在云效 Flow（选型 D，接入指南 docs/yunxiao-cicd.md）
+# git push = 上游 codeup/main → 云效流水线（Codeup 源 → 杭州/北京公共集群，系数 1 →
+#   近源推 ACR registry.cn-hangzhou.aliyuncs.com/hou_yun_long/campus，tag backend|frontend-<构建号>）
+# GitHub Actions（.github/workflows/ci-cd.yml，name: CI）只留三门禁：后端 pytest+契约、
+#   前端 vitest+vue-tsc build、k6 四门（钉 v2.3.0 与本地同版本，双下载源）——
+#   只在显式 push github 时触发；推镜像前想让门禁把关就先 git push github main。
+# 镜像本地构建：docker build -f backend/Dockerfile -t campus:backend:dev .
 #                   docker build -f frontend/Dockerfile -t campus:frontend:dev .
 ```
 
