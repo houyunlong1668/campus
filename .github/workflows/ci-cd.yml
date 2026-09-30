@@ -140,7 +140,8 @@ jobs:
   deploy-image:
     name: 构建镜像并推送阿里云 ACR
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # 35：留出跨境推送的重试余量（单 push 限时 8 分钟 × 重试 + 构建）
+    timeout-minutes: 35
     # PR 不发版；push main / v* 标签 / 手动触发才构建推送，且必须三门全绿
     needs: [backend-tests, frontend-tests, k6-gate]
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
@@ -178,16 +179,38 @@ jobs:
             --password-stdin "$ACR_REGISTRY"
 
       - name: 打标并推送（参考文档步骤 3/5）
+        # 跨境推送加固（run #3 实测：push 步骤 10+ 分钟日志全静默）：
+        # 1) docker push 进度条用 \r 刷新、Actions 按行缓冲 → 上传期零日志，“看着卡死”；
+        #    每次尝试打 UTC 时间戳，日志始终有心跳。
+        # 2) 美西 runner → 杭州 ACR 偶发 TCP 假死（吞吐归零）：单次 push 限时 8 分钟，
+        #    超时/失败自动换新连接重试（已传完的层会被跳过，重试不从零开始）。
+        # 3) 总兜底仍是 job 级 timeout-minutes。
         run: |
+          ts() { date -u +%H:%M:%S; }
+          push_try() {
+            local tag="$1"
+            for i in 1 2; do
+              echo "[$(ts)] push $tag 第 $i 次开始"
+              if timeout 480 docker push "$tag"; then
+                echo "[$(ts)] push $tag 成功"
+                return 0
+              else
+                echo "::warning::push $tag 第 $i 次超时/失败（exit=$?），10s 后换连接重试"
+                sleep 10
+              fi
+            done
+            echo "::error::push $tag 两轮均失败（ACR 凭据/仓库/网络皆可能）"
+            return 1
+          }
           docker tag "campus:backend-$IMAGE_TAG"  "$ACR_IMAGE:backend-$IMAGE_TAG"
           docker tag "campus:frontend-$IMAGE_TAG" "$ACR_IMAGE:frontend-$IMAGE_TAG"
-          docker push "$ACR_IMAGE:backend-$IMAGE_TAG"
-          docker push "$ACR_IMAGE:frontend-$IMAGE_TAG"
-          # main 分支额外推 -latest，便于 ECS/服务器按固定名拉取
+          push_try "$ACR_IMAGE:backend-$IMAGE_TAG"
+          push_try "$ACR_IMAGE:frontend-$IMAGE_TAG"
+          # main 分支额外推 -latest，便于 ECS/服务器按固定名拉取（层已在仓库，只推 manifest）
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then
             docker tag "campus:backend-$IMAGE_TAG"  "$ACR_IMAGE:backend-latest"
             docker tag "campus:frontend-$IMAGE_TAG" "$ACR_IMAGE:frontend-latest"
-            docker push "$ACR_IMAGE:backend-latest"
-            docker push "$ACR_IMAGE:frontend-latest"
+            push_try "$ACR_IMAGE:backend-latest"
+            push_try "$ACR_IMAGE:frontend-latest"
           fi
           docker images "$ACR_IMAGE" || true
