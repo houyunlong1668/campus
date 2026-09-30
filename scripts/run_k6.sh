@@ -5,7 +5,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT=8300
 DB_PATH="$ROOT/backend/data/k6-smoke.db"
-BACKEND_PY="$ROOT/backend/.venv/Scripts/python.exe"
+# 解释器路径跨平台：Linux（CI）的 uv venv 是 .venv/bin/python，Windows 是 Scripts/python.exe。
+# 可用环境变量 BACKEND_PY 显式覆盖；默认按「哪个存在」自动选，两边行为不变。
+if [ -z "${BACKEND_PY:-}" ]; then
+  if [ -x "$ROOT/backend/.venv/bin/python" ]; then
+    BACKEND_PY="$ROOT/backend/.venv/bin/python"
+  else
+    BACKEND_PY="$ROOT/backend/.venv/Scripts/python.exe"
+  fi
+fi
 LOG="$(mktemp)"
 
 # 契约：k6 缺失必须红，不许跳过（exit 127 = 命令未找到，语义一致）

@@ -1,0 +1,29 @@
+# 构建上下文瘦身 + 防密钥入库镜像（context = 仓库根，两个 Dockerfile 共用）
+.git
+.worktrees
+.superpowers
+.agents
+.claude
+.qoder
+.github
+
+# 依赖产物：镜像内由 uv sync / npm ci 重建，绝不用宿主的
+**/.venv
+**/__pycache__
+**/*.py[cod]
+**/node_modules
+**/dist
+.pytest_cache
+
+# 本地数据库与密钥：*.db/.env 一个都不许进镜像
+backend/data
+**/*.db
+**/*.sqlite*
+**/.env
+**/.env.*
+!.env.example
+deploy/.env
+
+# 大而无用的杂项
+**/*.log
+node_modules
