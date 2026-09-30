@@ -11,6 +11,8 @@ export default defineConfig({
       '/auth': 'http://localhost:8000',
       '/health': 'http://localhost:8000',
       '/debug': 'http://localhost:8000',
+      '/confirm': 'http://localhost:8000',
+      '/replay': 'http://localhost:8000',
     },
   },
 })
