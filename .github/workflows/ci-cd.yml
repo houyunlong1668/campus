@@ -97,11 +97,22 @@ jobs:
         run: uv sync --frozen --python 3.13
 
       - name: 安装 k6 v2.3.0（与本地门禁同版本，阈值行为一致）
+        # run #1 此步失败且 job 日志需 admin 权限读不到——加固：set -x 全跟踪、
+        # curl 重试抗偶发、find 找二进制兼容 zip 内布局变化、每类失败带 ::error:: 注解。
         run: |
-          curl -fsSL -o /tmp/k6.zip \
-            https://github.com/grafana/k6/releases/download/v2.3.0/k6-v2.3.0-linux-amd64.zip
-          unzip -q /tmp/k6.zip -d /tmp/k6
-          sudo install /tmp/k6/k6-v2.3.0-linux-amd64/k6 /usr/local/bin/k6
+          set -x
+          curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 -o /tmp/k6.zip \
+            https://github.com/grafana/k6/releases/download/v2.3.0/k6-v2.3.0-linux-amd64.zip \
+            || { echo "::error::k6 压缩包下载失败（URL 变更或网络）https://github.com/grafana/k6/releases/tag/v2.3.0"; exit 1; }
+          unzip -q /tmp/k6.zip -d /tmp/k6x \
+            || { echo "::error::unzip 解压失败（包损坏或 unzip 缺失）"; exit 1; }
+          K6BIN="$(find /tmp/k6x -type f -name k6 | head -1)"
+          if [ -z "$K6BIN" ]; then
+            echo "::error::zip 内未找到 k6 二进制，包布局有变"
+            unzip -l /tmp/k6.zip
+            exit 1
+          fi
+          sudo install "$K6BIN" /usr/local/bin/k6
           k6 version
 
       - name: 跑四门（authz / session_isolation / sse_chat / api_smoke）
